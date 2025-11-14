@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Подтвердите регистрацию</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica', 'Arial', sans-serif;
+            background-color: #252525;
+        }
+        .container {
+            max-width: 592px;
+            margin: 32px auto;
+            background-color: #101010;
+            border-radius: 20px;
+            padding: 40px;
+        }
+        .logo {
+            width: 109.83px;
+            height: 32px;
+            margin-bottom: 32px;
+        }
+        .hero-image {
+            width: 100%;
+            height: 320px;
+            border-radius: 8px;
+            border: 1px solid #636363;
+            object-fit: cover;
+            margin-bottom: 32px;
+        }
+        .content {
+            margin-bottom: 32px;
+        }
+        .title {
+            font-size: 24px;
+            font-weight: 600;
+            line-height: 32px;
+            color: #ffffff;
+            margin: 0 0 16px 0;
+        }
+        .message {
+            font-size: 16px;
+            font-weight: 400;
+            line-height: 24px;
+            color: #ffffff;
+            margin: 0 0 24px 0;
+        }
+        .button {
+            display: inline-block;
+            background-color: #f0f0f5;
+            color: #141414;
+            font-size: 16px;
+            font-weight: 500;
+            line-height: 24px;
+            letter-spacing: -0.3962px;
+            padding: 12px 16px;
+            border-radius: 12px;
+            text-decoration: none;
+            text-align: center;
+        }
+        .footer {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding-top: 32px;
+            border-top: 1px solid #2a2a2a;
+        }
+        .footer-logo {
+            width: 68.643px;
+            height: 20px;
+        }
+        .copyright {
+            font-size: 16px;
+            font-weight: 400;
+            line-height: 24px;
+            color: #ffffff;
+            margin: 0;
+        }
+        
+        @media only screen and (max-width: 600px) {
+            .container {
+                margin: 16px;
+                padding: 24px;
+            }
+            .hero-image {
+                height: 200px;
+            }
+            .title {
+                font-size: 20px;
+                line-height: 28px;
+            }
+        }
+    </style>
+</head>
+<body style="margin: 0; padding: 0; background-color: #252525;">
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #252525; padding: 32px 12px;">
+        <tr>
+            <td align="center">
+                <table width="592" cellpadding="0" cellspacing="0" border="0" style="max-width: 592px; background-color: #101010; border-radius: 20px; padding: 40px;">
+                    <!-- Logo -->
+                    <tr>
+                        <td style="padding-bottom: 32px;">
+                            <!-- Замените YOUR_SITE_URL на ваш реальный URL после deploy -->
+                            <img src="https://YOUR_SITE_URL.vercel.app/icons/monty-logo.svg" alt="Monty" width="109.83" height="32" style="display: block; width: 109.83px; height: 32px;" />
+                        </td>
+                    </tr>
+                    
+                    <!-- Hero Image -->
+                    <tr>
+                        <td style="padding-bottom: 32px;">
+                            <!-- Замените YOUR_SITE_URL на ваш реальный URL после deploy -->
+                            <img src="https://YOUR_SITE_URL.vercel.app/email-bg.png" alt="Monty Background" width="512" height="320" style="display: block; width: 100%; height: 320px; border-radius: 8px; border: 1px solid #636363; object-fit: cover;" />
+                        </td>
+                    </tr>
+                    
+                    <!-- Content -->
+                    <tr>
+                        <td style="padding-bottom: 32px;">
+                            <h1 style="font-size: 24px; font-weight: 600; line-height: 32px; color: #ffffff; margin: 0 0 16px 0;">
+                                Создавайте монтажные листы<br/>за минуты
+                            </h1>
+                            
+                            <p style="font-size: 16px; font-weight: 400; line-height: 24px; color: #ffffff; margin: 0 0 24px 0;">
+                                Нажмите на кнопку ниже для подтверждения создания аккаунта
+                            </p>
+                            
+                            <a href="{{ .ConfirmationURL }}" style="display: inline-block; background-color: #f0f0f5; color: #141414; font-size: 16px; font-weight: 500; line-height: 24px; letter-spacing: -0.3962px; padding: 12px 16px; border-radius: 12px; text-decoration: none; text-align: center;">
+                                Подтвердить
+                            </a>
+                        </td>
+                    </tr>
+                    
+                    <!-- Footer -->
+                    <tr>
+                        <td style="padding-top: 32px; border-top: 1px solid #2a2a2a;">
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                                <tr>
+                                    <td align="left" style="width: 50%;">
+                                        <!-- Замените YOUR_SITE_URL на ваш реальный URL после deploy -->
+                                        <img src="https://YOUR_SITE_URL.vercel.app/icons/monty-logo-small.svg" alt="Monty" width="68.643" height="20" style="display: block; width: 68.643px; height: 20px;" />
+                                    </td>
+                                    <td align="right" style="width: 50%;">
+                                        <p style="font-size: 16px; font-weight: 400; line-height: 24px; color: #ffffff; margin: 0;">
+                                            © 2025. Monty
+                                        </p>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>
+

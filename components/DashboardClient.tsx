@@ -1,18 +1,23 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { DocumentCheckIcon, ArrowPathIcon, ExclamationCircleIcon } from '@heroicons/react/16/solid';
+import { toast } from 'sonner';
 import type { Video, Profile } from '@/types';
 import type { User } from '@supabase/supabase-js';
 import VideoCard from './VideoCard';
 import UploadModal from './UploadModal';
-import UserMenu from './UserMenu';
+import UploadModalLong from './UploadModalLong';
+import Header from './Header';
 
 interface DashboardClientProps {
   videos: Video[];
   user: User;
   profile: Profile | null;
 }
+
+type TabType = 'ready' | 'processing' | 'errors';
 
 export default function DashboardClient({
   videos: initialVideos,
@@ -21,8 +26,10 @@ export default function DashboardClient({
 }: DashboardClientProps) {
   const [videos, setVideos] = useState<Video[]>(initialVideos);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'ready' | 'processing'>('ready');
+  const [isUploadModalLongOpen, setIsUploadModalLongOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<TabType>('ready');
   const router = useRouter();
+  const previousVideosRef = useRef<Video[]>(initialVideos);
 
   // Separate videos by status
   const readyVideos = videos.filter((v) => v.status === 'completed');
@@ -31,168 +38,236 @@ export default function DashboardClient({
   );
   const errorVideos = videos.filter((v) => v.status === 'error');
 
-  const displayVideos = activeTab === 'ready' ? readyVideos : processingVideos;
+  const displayVideos =
+    activeTab === 'ready'
+      ? readyVideos
+      : activeTab === 'processing'
+      ? processingVideos
+      : errorVideos;
 
-  // Poll for video status updates
+  // Update videos state when initialVideos changes
   useEffect(() => {
-    const interval = setInterval(() => {
-      if (processingVideos.length > 0) {
-        router.refresh();
+    setVideos(initialVideos);
+  }, [initialVideos]);
+
+  // Check for newly completed videos and show toast
+  useEffect(() => {
+    const previousVideos = previousVideosRef.current;
+    
+    // Найти видео, которые изменили статус на 'completed'
+    initialVideos.forEach((video) => {
+      const previousVideo = previousVideos.find((v) => v.id === video.id);
+      
+      if (previousVideo && 
+          previousVideo.status !== 'completed' && 
+          video.status === 'completed') {
+        // Сокращаем название файла если оно слишком длинное
+        const fileName = video.original_filename || 'Видео';
+        const shortName = fileName.length > 50 
+          ? fileName.substring(0, 50) + '...' 
+          : fileName;
+        
+        // Видео завершило обработку!
+        toast.success('Видео обработано!', {
+          description: `${shortName} готов к просмотру`,
+          duration: 5000,
+        });
       }
-    }, 5000); // Poll every 5 seconds
+    });
+    
+    // Обновляем reference
+    previousVideosRef.current = initialVideos;
+  }, [initialVideos]);
+
+  // Poll for video status updates - продолжаем обновлять пока есть видео в обработке
+  useEffect(() => {
+    if (processingVideos.length === 0) return;
+
+    // Обновляем каждые 3 секунды
+    const interval = setInterval(() => {
+      router.refresh();
+    }, 3000);
 
     return () => clearInterval(interval);
   }, [processingVideos.length, router]);
 
+  // Дополнительное обновление при монтировании компонента
+  useEffect(() => {
+    // Обновляем сразу при загрузке если есть видео в обработке
+    if (processingVideos.length > 0) {
+      router.refresh();
+    }
+  }, []);
+
   const handleUploadComplete = () => {
     setIsUploadModalOpen(false);
+    setIsUploadModalLongOpen(false);
+    // Переключаем на таб "В работе" чтобы показать загруженное видео
+    setActiveTab('processing');
+    // Показываем уведомление о начале обработки
+    toast.info('Видео загружено', {
+      description: 'Начинается обработка через AI',
+      duration: 4000,
+    });
     router.refresh();
   };
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a]">
+    <div className="min-h-screen bg-[#191919]">
       {/* Header */}
-      <header className="border-b border-[#2a2a2a] bg-[#0a0a0a]">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-8">
-            <h1 className="text-xl font-light">
-              <span className="font-normal">carête</span>{' '}
-              <span className="text-gray-400">montage</span>
-            </h1>
-          </div>
-
-          <div className="flex items-center gap-6">
-            <div className="text-sm text-gray-400">
-              <span className="text-white">{processingVideos.length}</span> монтажных листах
-            </div>
-            <button className="text-sm text-gray-400 hover:text-white transition-colors">
-              Примеры
-            </button>
-            <button className="text-sm text-gray-400 hover:text-white transition-colors">
-              Поддержка
-            </button>
-            <UserMenu user={user} profile={profile} />
-          </div>
-        </div>
-      </header>
+      <Header user={user} profile={profile} />
 
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-6 py-8">
-        <div className="flex items-center justify-between mb-8">
-          <h2 className="text-2xl font-semibold">Монтажные листы</h2>
-          <button
-            onClick={() => setIsUploadModalOpen(true)}
-            className="px-6 py-2.5 bg-white text-black font-medium rounded-lg hover:bg-gray-100 transition-colors"
-          >
-            Новый лист
-          </button>
-        </div>
-
-        {/* Tabs */}
-        <div className="flex gap-6 mb-8">
-          <button
-            onClick={() => setActiveTab('ready')}
-            className={`flex items-center gap-2 pb-2 border-b-2 transition-colors ${
-              activeTab === 'ready'
-                ? 'border-white text-white'
-                : 'border-transparent text-gray-400 hover:text-white'
-            }`}
-          >
-            <span>Готово</span>
-            <span
-              className={`px-2 py-0.5 rounded-full text-xs ${
-                activeTab === 'ready'
-                  ? 'bg-white text-black'
-                  : 'bg-[#2a2a2a] text-gray-400'
-              }`}
-            >
-              {readyVideos.length}
-            </span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('processing')}
-            className={`flex items-center gap-2 pb-2 border-b-2 transition-colors ${
-              activeTab === 'processing'
-                ? 'border-white text-white'
-                : 'border-transparent text-gray-400 hover:text-white'
-            }`}
-          >
-            <span>В работе</span>
-            <span
-              className={`px-2 py-0.5 rounded-full text-xs ${
-                activeTab === 'processing'
-                  ? 'bg-white text-black'
-                  : 'bg-[#2a2a2a] text-gray-400'
-              }`}
-            >
-              {processingVideos.length}
-            </span>
-          </button>
-        </div>
-
-        {/* Video Grid */}
-        {displayVideos.length === 0 ? (
-          <div className="text-center py-16">
-            <div className="inline-flex items-center justify-center w-16 h-16 bg-[#1a1a1a] rounded-full mb-4">
-              <svg
-                className="w-8 h-8 text-gray-500"
-                fill="none"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="2"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
-              </svg>
-            </div>
-            <h3 className="text-lg font-medium text-white mb-2">
-              {activeTab === 'ready'
-                ? 'Нет готовых монтажных листов'
-                : 'Нет видео в обработке'}
-            </h3>
-            <p className="text-gray-400 mb-6">
-              {activeTab === 'ready'
-                ? 'Загрузите видео, чтобы начать создание монтажного листа'
-                : 'Загруженные видео появятся здесь во время обработки'}
-            </p>
-            {activeTab === 'ready' && (
+      <main className="pt-[62px] min-h-screen bg-[#101010]">
+        <div className="max-w-[1400px] mx-auto px-8 py-6">
+          {/* Title and New Buttons */}
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-white text-2xl leading-9 font-medium">
+              Монтажные листы
+            </h2>
+            <div className="flex gap-2">
               <button
                 onClick={() => setIsUploadModalOpen(true)}
-                className="px-6 py-2.5 bg-white text-black font-medium rounded-lg hover:bg-gray-100 transition-colors"
+                className="h-9 px-3 py-2.5 bg-neutral-100 rounded-lg flex items-center justify-center hover:bg-neutral-200 transition-colors"
               >
-                Загрузить видео
+                <span className="text-black text-sm font-medium leading-none tracking-[-0.3962px]">
+                  Новый лист
+                </span>
               </button>
-            )}
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {displayVideos.map((video) => (
-              <VideoCard key={video.id} video={video} />
-            ))}
-          </div>
-        )}
-
-        {/* Error Videos */}
-        {errorVideos.length > 0 && (
-          <div className="mt-12">
-            <h3 className="text-lg font-medium text-red-400 mb-4">
-              Ошибки обработки ({errorVideos.length})
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              {errorVideos.map((video) => (
-                <VideoCard key={video.id} video={video} />
-              ))}
+              <button
+                onClick={() => setIsUploadModalLongOpen(true)}
+                className="h-9 px-3 py-2.5 bg-[#2c2c2c] border border-[#3ea662] rounded-lg flex items-center justify-center hover:bg-[#3ea662]/10 transition-colors"
+              >
+                <span className="text-[#3ea662] text-sm font-medium leading-none tracking-[-0.3962px]">
+                  Длинное видео
+                </span>
+              </button>
             </div>
           </div>
-        )}
+
+          {/* Tabs */}
+          <div className="border-b border-[#2e2e2e] flex gap-2 items-end mb-8">
+            {/* Готово Tab */}
+            <button
+              onClick={() => setActiveTab('ready')}
+              className={`flex items-end gap-2 px-0 py-2.5 ${
+                activeTab === 'ready' ? 'border-b-2 border-white' : ''
+              }`}
+            >
+              <div className="flex items-center gap-2 px-2 py-1 rounded-md">
+                <DocumentCheckIcon className="w-4 h-4 text-[#9b9b9b]" />
+                <span className={`text-sm leading-5 ${activeTab === 'ready' ? 'text-white font-medium' : 'text-white font-normal'}`}>
+                  Готово
+                </span>
+                <div className="h-[18px] px-1.5 bg-[#2c2c2c] rounded-sm flex items-center justify-center">
+                  <span className="text-white text-xs font-medium leading-5">
+                    {readyVideos.length}
+                  </span>
+                </div>
+              </div>
+            </button>
+
+            {/* В работе Tab */}
+            <button
+              onClick={() => setActiveTab('processing')}
+              className={`flex items-end gap-2 px-0 py-2.5 ${
+                activeTab === 'processing' ? 'border-b-2 border-white' : ''
+              }`}
+            >
+              <div className="flex items-center gap-2 px-2 py-1 rounded-md">
+                <ArrowPathIcon className="w-4 h-4 text-[#9b9b9b]" />
+                <span className={`text-sm leading-5 ${activeTab === 'processing' ? 'text-white font-medium' : 'text-white font-normal'}`}>
+                  В работе
+                </span>
+                <div className="h-[18px] px-1.5 bg-[#2c2c2c] rounded-sm flex items-center justify-center">
+                  <span className="text-white text-xs font-medium leading-5">
+                    {processingVideos.length}
+                  </span>
+                </div>
+              </div>
+            </button>
+
+            {/* Ошибки Tab */}
+            <button
+              onClick={() => setActiveTab('errors')}
+              className={`flex items-end gap-2 px-0 py-2.5 ${
+                activeTab === 'errors' ? 'border-b-2 border-white' : ''
+              }`}
+            >
+              <div className="flex items-center gap-2 px-2 py-1 rounded-md">
+                <ExclamationCircleIcon className="w-4 h-4 text-[#9b9b9b]" />
+                <span className={`text-sm leading-5 ${activeTab === 'errors' ? 'text-white font-medium' : 'text-white font-normal'}`}>
+                  Ошибки
+                </span>
+                <div className="h-[18px] px-1.5 bg-[#2c2c2c] rounded-sm flex items-center justify-center">
+                  <span className="text-white text-xs font-medium leading-5">
+                    {errorVideos.length}
+                  </span>
+                </div>
+              </div>
+            </button>
+          </div>
+
+          {/* Video Grid */}
+          <div className="pt-2">
+            {displayVideos.length === 0 ? (
+              <div className="text-center py-16">
+                <div className="inline-flex items-center justify-center w-16 h-16 bg-[#191919] rounded-full mb-4">
+                  <svg
+                    className="w-8 h-8 text-gray-500"
+                    fill="none"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                  </svg>
+                </div>
+                <h3 className="text-lg font-medium text-white mb-2">
+                  Нет {activeTab === 'ready' ? 'готовых' : activeTab === 'processing' ? 'обрабатываемых' : 'ошибочных'} монтажных листов
+                </h3>
+                <p className="text-gray-400 mb-6">
+                  {activeTab === 'ready'
+                    ? 'Загрузите видео, чтобы начать создание монтажного листа'
+                    : activeTab === 'processing'
+                    ? 'Загруженные видео появятся здесь во время обработки'
+                    : 'Видео с ошибками обработки появятся здесь'}
+                </p>
+                {activeTab === 'ready' && (
+                  <button
+                    onClick={() => setIsUploadModalOpen(true)}
+                    className="px-6 py-2.5 bg-white text-black font-medium rounded-lg hover:bg-gray-100 transition-colors"
+                  >
+                    Загрузить видео
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="grid grid-cols-3 gap-5">
+                {displayVideos.map((video) => (
+                  <VideoCard key={video.id} video={video} />
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       </main>
 
       {/* Upload Modal */}
       {isUploadModalOpen && (
         <UploadModal
           onClose={() => setIsUploadModalOpen(false)}
+          onUploadComplete={handleUploadComplete}
+          userId={user.id}
+        />
+      )}
+
+      {/* Upload Modal Long */}
+      {isUploadModalLongOpen && (
+        <UploadModalLong
+          onClose={() => setIsUploadModalLongOpen(false)}
           onUploadComplete={handleUploadComplete}
           userId={user.id}
         />

@@ -19,6 +19,12 @@ export default async function DashboardPage() {
     .eq('user_id', user.id)
     .order('created_at', { ascending: false });
 
+  // Map chunk_progress_json to chunk_progress
+  const mappedVideos = (videos || []).map((video: any) => ({
+    ...video,
+    chunk_progress: video.chunk_progress_json,
+  })) as Video[];
+
   // Fetch user profile
   const { data: profile } = await supabase
     .from('profiles')
@@ -28,7 +34,7 @@ export default async function DashboardPage() {
 
   return (
     <DashboardClient
-      videos={(videos as Video[]) || []}
+      videos={mappedVideos}
       user={user}
       profile={profile}
     />

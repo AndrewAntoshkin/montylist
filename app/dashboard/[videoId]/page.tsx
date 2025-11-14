@@ -44,10 +44,10 @@ export default async function MontagePage({ params }: PageProps) {
   if (sheetError || !sheet) {
     // Video exists but no montage sheet yet (might be processing)
     return (
-      <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center">
+      <div className="min-h-screen bg-[#191919] flex items-center justify-center">
         <div className="text-center">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-[#1a1a1a] rounded-full mb-4">
-            <div className="w-8 h-8 border-4 border-gray-600 border-t-white rounded-full animate-spin"></div>
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-[#101010] rounded-full mb-4">
+            <div className="w-8 h-8 border-4 border-[#2e2e2e] border-t-white rounded-full animate-spin"></div>
           </div>
           <h2 className="text-xl font-semibold text-white mb-2">
             Монтажный лист обрабатывается
@@ -71,11 +71,20 @@ export default async function MontagePage({ params }: PageProps) {
     console.error('Error fetching entries:', entriesError);
   }
 
+  // Fetch profile
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', user.id)
+    .single();
+
   return (
     <MontageTableClient
       video={video as Video}
       sheet={sheet as MontageSheet}
       entries={(entries as MontageEntry[]) || []}
+      user={user}
+      profile={profile}
     />
   );
 }

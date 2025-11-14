@@ -1,11 +1,11 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { UserCircleIcon, ArrowRightStartOnRectangleIcon } from '@heroicons/react/24/outline';
 import { createClient } from '@/lib/supabase/client';
+import { useRouter } from 'next/navigation';
 import type { User } from '@supabase/supabase-js';
 import type { Profile } from '@/types';
-import { LogOut, User as UserIcon } from 'lucide-react';
 
 interface UserMenuProps {
   user: User;
@@ -18,6 +18,7 @@ export default function UserMenu({ user, profile }: UserMenuProps) {
   const router = useRouter();
   const supabase = createClient();
 
+  // Close menu when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
@@ -29,83 +30,65 @@ export default function UserMenu({ user, profile }: UserMenuProps) {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const handleLogout = async () => {
+  const handleSignOut = async () => {
     await supabase.auth.signOut();
     router.push('/auth/login');
     router.refresh();
   };
 
-  const getInitials = () => {
-    if (profile?.full_name) {
-      return profile.full_name
-        .split(' ')
-        .map((n) => n[0])
-        .join('')
-        .toUpperCase()
-        .slice(0, 2);
-    }
-    return user.email?.[0].toUpperCase() || 'U';
-  };
-
   return (
     <div className="relative" ref={menuRef}>
+      {/* User Icon Button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center justify-center w-8 h-8 rounded-full bg-[#2a2a2a] hover:bg-[#3a3a3a] text-white text-sm transition-colors"
+        className="w-7 h-7 rounded-full bg-[#222222] border border-[#2e2e2e] flex items-center justify-center hover:bg-[#2a2a2a] transition-colors"
       >
-        {profile?.avatar_url ? (
-          <img
-            src={profile.avatar_url}
-            alt={profile.full_name || 'User'}
-            className="w-full h-full rounded-full object-cover"
-          />
-        ) : (
-          <span>{getInitials()}</span>
-        )}
+        <UserCircleIcon className="w-5 h-5 text-white" />
       </button>
 
+      {/* Dropdown Menu */}
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-64 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg shadow-lg z-50">
-          <div className="p-4 border-b border-[#2a2a2a]">
-            <div className="flex items-center gap-3">
-              <div className="flex items-center justify-center w-10 h-10 rounded-full bg-[#2a2a2a] text-white text-sm">
-                {profile?.avatar_url ? (
-                  <img
-                    src={profile.avatar_url}
-                    alt={profile.full_name || 'User'}
-                    className="w-full h-full rounded-full object-cover"
-                  />
-                ) : (
-                  <span>{getInitials()}</span>
-                )}
+        <div className="absolute right-0 mt-2 w-80 bg-[#191919] border border-[#2e2e2e] rounded-xl shadow-lg overflow-hidden z-50">
+          {/* Header */}
+          <div className="px-4 py-3 border-b border-[#2e2e2e]">
+            <p className="text-white text-sm font-medium">Профиль</p>
+          </div>
+
+          {/* Content */}
+          <div className="p-4 space-y-3">
+            {/* Email */}
+            <div>
+              <label className="text-[#979797] text-xs font-medium">Логин (Email)</label>
+              <div className="mt-1 px-3 py-2 bg-[#101010] border border-[#2e2e2e] rounded-lg">
+                <p className="text-white text-sm truncate">{user.email}</p>
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-white font-medium truncate">
-                  {profile?.full_name || 'Пользователь'}
-                </p>
-                <p className="text-sm text-gray-400 truncate">{user.email}</p>
+            </div>
+
+            {/* Password */}
+            <div>
+              <label className="text-[#979797] text-xs font-medium">Пароль</label>
+              <div className="mt-1 px-3 py-2 bg-[#101010] border border-[#2e2e2e] rounded-lg">
+                <p className="text-white text-sm">••••••••</p>
+              </div>
+            </div>
+
+            {/* User ID */}
+            <div>
+              <label className="text-[#979797] text-xs font-medium">ID пользователя</label>
+              <div className="mt-1 px-3 py-2 bg-[#101010] border border-[#2e2e2e] rounded-lg">
+                <p className="text-white text-xs font-mono truncate">{user.id}</p>
               </div>
             </div>
           </div>
 
-          <div className="p-2">
+          {/* Footer */}
+          <div className="px-4 py-3 border-t border-[#2e2e2e]">
             <button
-              onClick={() => {
-                setIsOpen(false);
-                // TODO: Navigate to profile page
-              }}
-              className="flex items-center gap-3 w-full px-3 py-2 text-left text-gray-300 hover:text-white hover:bg-[#2a2a2a] rounded transition-colors"
+              onClick={handleSignOut}
+              className="w-full h-10 px-4 bg-[#191919] border border-[#2e2e2e] rounded-lg hover:bg-[#2a2a2a] transition-colors flex items-center justify-center gap-2"
             >
-              <UserIcon className="w-4 h-4" />
-              <span>Профиль</span>
-            </button>
-
-            <button
-              onClick={handleLogout}
-              className="flex items-center gap-3 w-full px-3 py-2 text-left text-gray-300 hover:text-red-400 hover:bg-[#2a2a2a] rounded transition-colors"
-            >
-              <LogOut className="w-4 h-4" />
-              <span>Выйти</span>
+              <ArrowRightStartOnRectangleIcon className="w-4 h-4 text-white" />
+              <span className="text-white text-sm font-medium">Выйти из профиля</span>
             </button>
           </div>
         </div>
@@ -113,4 +96,3 @@ export default function UserMenu({ user, profile }: UserMenuProps) {
     </div>
   );
 }
-

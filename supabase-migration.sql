@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS public.videos (
   status TEXT NOT NULL DEFAULT 'uploading' CHECK (status IN ('uploading', 'processing', 'completed', 'error')),
   error_message TEXT,
   replicate_prediction_id TEXT,
+  chunk_progress_json JSONB, -- прогресс обработки чанков для длинных видео
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
   completed_at TIMESTAMPTZ

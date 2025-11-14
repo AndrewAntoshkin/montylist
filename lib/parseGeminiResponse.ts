@@ -27,39 +27,58 @@ export function parseGeminiResponse(text: string): ParsedScene[] {
 
 function parseScene(timecode: string, content: string): ParsedScene | null {
   try {
-    // Parse timecode (e.g., "15:20 - 15:29")
+    // Parse timecode (e.g., "15:20:30 - 15:29:45" or "15:20 - 15:29")
     const timecodeMatch = timecode.match(/(\d{1,2}:\d{2}(?::\d{2})?)\s*-\s*(\d{1,2}:\d{2}(?::\d{2})?)/);
     if (!timecodeMatch) return null;
     
     const startTimecode = normalizeTimecode(timecodeMatch[1]);
     const endTimecode = normalizeTimecode(timecodeMatch[2]);
     
-    // Extract plan type (e.g., "Крупный", "Средний", etc.)
-    const planTypeMatch = content.match(/\*\*План\s+([^:]+):\*\*/i);
+    // Extract plan type - NEW FORMAT: **План:** Кр.
+    const planTypeMatch = content.match(/\*\*План:\*\*\s*([^\n*]+)/i);
     const planType = planTypeMatch ? planTypeMatch[1].trim() : '';
     
-    // Extract description (everything between plan type and dialogue markers)
+    // Extract "Содержание" field - now contains detailed description
     let description = '';
-    const descriptionMatch = content.match(/\*\*План\s+[^:]+:\*\*\s*([^\n]+?)(?=\s*\*\*|$)/s);
-    if (descriptionMatch) {
-      description = descriptionMatch[1].trim();
-      // Remove bullet points
+    const contentMatch = content.match(/\*\*Содержание:\*\*\s*([^*]+?)(?=\s*\*\*|$)/is);
+    if (contentMatch) {
+      description = contentMatch[1].trim();
+      // Clean up bullet points and extra whitespace
       description = description.replace(/^\*\s+/, '').trim();
+      // Remove extra newlines
+      description = description.replace(/\n\s*\n/g, '\n').trim();
     }
     
-    // Extract dialogues/sounds (everything with ГЗК, НДП, etc.)
-    const dialogues: string[] = [];
-    const dialogueRegex = /\*\*([^:]+):\*\*\s*([^\n]+)/g;
-    let dialogueMatch;
+    // Extract dialogues/sounds 
+    // NEW FORMAT: **Диалоги/Музыка:** contains all audio content
+    let dialogues = '';
+    const dialoguesMatch = content.match(/\*\*Диалоги\/Музыка:\*\*\s*([^*]+?)(?=\s*\*\*|$)/is);
+    if (dialoguesMatch) {
+      dialogues = dialoguesMatch[1].trim();
+      // Clean up formatting
+      dialogues = dialogues.replace(/^\s*-\s*/gm, '').trim();
+      dialogues = dialogues.replace(/\n\s*\n/g, '\n').trim();
+    }
     
-    while ((dialogueMatch = dialogueRegex.exec(content)) !== null) {
-      const label = dialogueMatch[1].trim();
-      const text = dialogueMatch[2].trim();
+    // FALLBACK: Try old format (individual Диалог/ГЗК/НДП/Музыка fields)
+    if (!dialogues) {
+      const dialoguesList: string[] = [];
+      const dialogueRegex = /\*\*([^:]+):\*\*\s*([^\n*]+)/g;
+      let dialogueMatch;
       
-      // Skip the "План" line
-      if (label.startsWith('План')) continue;
-      
-      dialogues.push(`${label}: ${text}`);
+      while ((dialogueMatch = dialogueRegex.exec(content)) !== null) {
+        const label = dialogueMatch[1].trim();
+        const text = dialogueMatch[2].trim();
+        
+        // Skip "План" and "Содержание" lines
+        if (label === 'План' || label === 'Содержание') continue;
+        
+        // Include only audio content: Диалог, ГЗК, НДП, Музыка
+        if (label.includes('Диалог') || label === 'ГЗК' || label === 'НДП' || label === 'Музыка') {
+          dialoguesList.push(`${label}: ${text}`);
+        }
+      }
+      dialogues = dialoguesList.join('\n');
     }
     
     return {
@@ -68,7 +87,7 @@ function parseScene(timecode: string, content: string): ParsedScene | null {
       end_timecode: endTimecode,
       plan_type: planType,
       description: description || '',
-      dialogues: dialogues.join('\n') || '',
+      dialogues: dialogues || '',
     };
   } catch (error) {
     console.error('Error parsing scene:', error);
@@ -125,21 +144,39 @@ export function parseAlternativeFormat(text: string): ParsedScene[] {
       continue;
     }
     
-    // Check for plan type
-    const planMatch = trimmedLine.match(/План\s+([^:]+):/i);
+    // Check for plan type - NEW FORMAT: План: Кр.
+    const planMatch = trimmedLine.match(/План:\s*(.+)/i);
     if (planMatch && currentScene) {
       currentScene.plan_type = planMatch[1].trim();
-      // Extract description after plan type
-      const descMatch = trimmedLine.match(/План\s+[^:]+:\s*(.+)/i);
-      if (descMatch) {
-        currentScene.description = descMatch[1].trim();
+      continue;
+    }
+    
+    // Check for "Содержание" field - now contains brief description
+    const contentMatch = trimmedLine.match(/Содержание:\s*(.+)/i);
+    if (contentMatch && currentScene) {
+      // Accumulate multi-line content
+      if (currentScene.description) {
+        currentScene.description += ' ' + contentMatch[1].trim();
+      } else {
+        currentScene.description = contentMatch[1].trim();
       }
       continue;
     }
     
-    // Check for dialogue markers
+    // Check for "Диалоги/Музыка" field
+    const dialoguesFieldMatch = trimmedLine.match(/Диалоги\/Музыка:\s*(.+)/i);
+    if (dialoguesFieldMatch && currentScene) {
+      if (currentScene.dialogues) {
+        currentScene.dialogues += '\n' + dialoguesFieldMatch[1].trim();
+      } else {
+        currentScene.dialogues = dialoguesFieldMatch[1].trim();
+      }
+      continue;
+    }
+    
+    // FALLBACK: Check for old-style dialogue markers
     if ((trimmedLine.includes('ГЗК:') || trimmedLine.includes('НДП:') || 
-         trimmedLine.includes('Диалог:') || trimmedLine.includes('Музыка:')) && currentScene) {
+         trimmedLine.includes('Диалог') || trimmedLine.includes('Музыка:')) && currentScene) {
       if (currentScene.dialogues) {
         currentScene.dialogues += '\n' + trimmedLine;
       } else {

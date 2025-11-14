@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { createClient } from '@/lib/supabase/client';
 
 export default function RegisterPage() {
@@ -61,8 +62,8 @@ export default function RegisterPage() {
 
   if (success) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#0a0a0a] px-4">
-        <div className="w-full max-w-md text-center">
+      <div className="bg-[#101010] relative w-full h-screen">
+        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[364px] text-center">
           <div className="mb-8">
             <div className="inline-flex items-center justify-center w-16 h-16 bg-[#3ea662] rounded-full mb-4">
               <svg
@@ -80,18 +81,18 @@ export default function RegisterPage() {
             <h2 className="text-2xl font-semibold text-white mb-2">
               Проверьте вашу почту
             </h2>
-            <p className="text-gray-400 mb-6">
+            <p className="text-[#868686] mb-6">
               Мы отправили письмо с подтверждением на <br />
               <span className="text-white">{email}</span>
             </p>
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-[#868686]">
               Пожалуйста, перейдите по ссылке в письме для активации аккаунта
             </p>
           </div>
 
           <Link
             href="/auth/login"
-            className="text-[#3ea662] hover:text-[#2e8b50] transition-colors"
+            className="text-[#3ea662] hover:text-[#2e8b50] transition-colors text-[14px]"
           >
             Вернуться на страницу входа
           </Link>
@@ -101,91 +102,96 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#0a0a0a] px-4">
-      <div className="w-full max-w-md">
-        {/* Logo */}
-        <div className="text-center mb-12">
-          <h1 className="text-4xl font-light mb-2">
-            <span className="font-normal">carête</span>{' '}
-            <span className="font-light text-gray-400">montage</span>
-          </h1>
-          <p className="text-gray-500 text-sm">
+    <div className="bg-[#101010] relative w-full h-screen">
+      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[364px] flex flex-col gap-[28px] items-center">
+        {/* Logo and tagline */}
+        <div className="flex flex-col gap-[16px] items-center justify-end w-full">
+          <div className="h-[32px] w-[109.83px] relative">
+            <Image
+              src="/icons/monty-logo.svg"
+              alt="Monty"
+              fill
+              className="object-contain"
+            />
+          </div>
+          <p className="text-[#868686] text-[16px] text-center leading-[1.2] tracking-[-0.3962px] w-[364px]">
             Создавайте монтажные листы за минуты
           </p>
         </div>
 
-        {/* Tab Switcher */}
-        <div className="flex mb-6 bg-[#1a1a1a] rounded-lg p-1">
-          <Link
-            href="/auth/login"
-            className="flex-1 text-center py-2 px-4 text-gray-400 hover:text-white text-sm transition-colors"
-          >
-            Вход
-          </Link>
-          <div className="flex-1 text-center py-2 px-4 bg-[#2a2a2a] rounded-md text-white text-sm">
-            Регистрация
+        {/* Form section */}
+        <div className="flex flex-col gap-[16px] items-start w-full">
+          {/* Tab Switcher */}
+          <div className="bg-[#2e2e2e] p-[4px] rounded-[12px] w-full flex gap-[8px]">
+            <Link
+              href="/auth/login"
+              className="flex-1 h-[34px] rounded-[8px] flex items-center justify-center px-[12px] py-[10px] hover:bg-[#1c1c1c]/50 transition-colors"
+            >
+              <p className="text-[#bebbbb] text-[14px] leading-none tracking-[-0.3962px]">
+                Вход
+              </p>
+            </Link>
+            <div className="flex-1 bg-[#1c1c1c] h-[34px] rounded-[8px] flex items-center justify-center px-[12px] py-[10px]">
+              <p className="text-white text-[14px] leading-none tracking-[-0.3962px] font-medium">
+                Регистрация
+              </p>
+            </div>
           </div>
-        </div>
 
-        {/* Register Form */}
-        <form onSubmit={handleRegister} className="space-y-4">
-          <div>
+          {/* Form */}
+          <form onSubmit={handleRegister} className="flex flex-col gap-[12px] items-start w-full">
             <input
               type="text"
               placeholder="Имя (необязательно)"
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
-              className="w-full px-4 py-3 bg-[#2a2a2a] border border-[#3a3a3a] rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-[#3ea662] transition-colors"
+              className="bg-[#2e2e2f] px-[16px] py-[12px] rounded-[12px] w-full text-white text-[16px] leading-[24px] tracking-[-0.3962px] font-medium placeholder-[#9f9f9f] focus:outline-none focus:ring-2 focus:ring-white"
             />
-          </div>
-
-          <div>
+            
             <input
               type="email"
               placeholder="Email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
-              className="w-full px-4 py-3 bg-[#2a2a2a] border border-[#3a3a3a] rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-[#3ea662] transition-colors"
+              className="bg-[#2e2e2f] px-[16px] py-[12px] rounded-[12px] w-full text-white text-[16px] leading-[24px] tracking-[-0.3962px] font-medium placeholder-[#9f9f9f] focus:outline-none focus:ring-2 focus:ring-white"
             />
-          </div>
-
-          <div>
+            
             <input
               type="password"
               placeholder="Пароль"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              className="w-full px-4 py-3 bg-[#2a2a2a] border border-[#3a3a3a] rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-[#3ea662] transition-colors"
+              className="bg-[#2e2e2f] px-[16px] py-[12px] rounded-[12px] w-full text-white text-[16px] leading-[24px] tracking-[-0.3962px] font-medium placeholder-[#9f9f9f] focus:outline-none focus:ring-2 focus:ring-white"
             />
-          </div>
-
-          <div>
+            
             <input
               type="password"
               placeholder="Подтвердите пароль"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               required
-              className="w-full px-4 py-3 bg-[#2a2a2a] border border-[#3a3a3a] rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-[#3ea662] transition-colors"
+              className="bg-[#2e2e2f] px-[16px] py-[12px] rounded-[12px] w-full text-white text-[16px] leading-[24px] tracking-[-0.3962px] font-medium placeholder-[#9f9f9f] focus:outline-none focus:ring-2 focus:ring-white"
             />
-          </div>
 
-          {error && (
-            <div className="text-red-400 text-sm text-center bg-red-500/10 py-2 px-4 rounded-lg">
-              {error}
-            </div>
-          )}
+            {error && (
+              <div className="text-red-400 text-sm text-center bg-red-500/10 py-2 px-4 rounded-lg w-full">
+                {error}
+              </div>
+            )}
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-3 bg-white text-black font-medium rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {loading ? 'Загрузка...' : 'Зарегистрироваться'}
-          </button>
-        </form>
+            <button
+              type="submit"
+              disabled={loading}
+              className="bg-[#f0f0f5] px-[16px] py-[12px] rounded-[12px] w-full flex items-center justify-center hover:bg-[#e0e0e5] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <p className="text-[#141414] text-[16px] leading-[24px] tracking-[-0.3962px] font-medium">
+                {loading ? 'Загрузка...' : 'Зарегистрироваться'}
+              </p>
+            </button>
+          </form>
+        </div>
       </div>
     </div>
   );

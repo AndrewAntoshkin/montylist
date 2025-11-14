@@ -1,15 +1,13 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Jost } from "next/font/google";
+import { Toaster } from 'sonner';
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
+const jost = Jost({
+  variable: "--font-jost",
+  subsets: ["latin", "cyrillic"],
+  display: 'swap',
+  weight: ['400', '500', '600', '700'],
 });
 
 export const metadata: Metadata = {
@@ -23,11 +21,22 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="ru">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${jost.variable} font-sans antialiased`}
       >
         {children}
+        <Toaster 
+          position="top-center" 
+          theme="dark"
+          toastOptions={{
+            style: {
+              background: '#191919',
+              border: '1px solid #2e2e2e',
+              color: '#ffffff',
+            },
+          }}
+        />
       </body>
     </html>
   );

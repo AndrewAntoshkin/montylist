@@ -11,6 +11,18 @@ export interface Profile {
   updated_at: string;
 }
 
+export interface ChunkProgress {
+  totalChunks: number;
+  completedChunks: number;
+  currentChunk: number;
+  chunks: Array<{
+    index: number;
+    status: 'pending' | 'processing' | 'completed' | 'failed';
+    startTimecode: string;
+    endTimecode: string;
+  }>;
+}
+
 export interface Video {
   id: string;
   user_id: string;
@@ -22,6 +34,7 @@ export interface Video {
   status: VideoStatus;
   error_message?: string;
   replicate_prediction_id?: string;
+  chunk_progress?: ChunkProgress; // метаданные прогресса по чанкам
   created_at: string;
   updated_at: string;
   completed_at?: string;

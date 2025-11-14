@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { X, Upload } from 'lucide-react';
+import Image from 'next/image';
 
 interface UploadModalProps {
   onClose: () => void;
@@ -77,7 +77,10 @@ export default function UploadModal({
 
       xhr.addEventListener('load', () => {
         if (xhr.status === 200) {
-          onUploadComplete();
+          // Небольшая задержка чтобы сервер успел создать запись
+          setTimeout(() => {
+            onUploadComplete();
+          }, 500);
         } else {
           setError('Ошибка при загрузке файла');
           setUploading(false);
@@ -102,145 +105,187 @@ export default function UploadModal({
     const k = 1024;
     const sizes = ['Bytes', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+    return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
   };
 
   return (
-    <div
-      className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg w-full max-w-lg">
-        {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-[#2a2a2a]">
-          <h2 className="text-xl font-semibold text-white">Новый лист</h2>
+    <>
+      {/* Затемненный фон */}
+      <div
+        className="fixed inset-0 bg-black/80 z-50"
+        onClick={(e) => {
+          if (!uploading) onClose();
+        }}
+      />
+
+      {/* Модальное окно */}
+      <div className="fixed inset-0 flex items-center justify-center z-50 pointer-events-none">
+        <div className="relative flex gap-4 items-start pointer-events-auto">
+          {/* Modal - Ширина: 664px, Высота: 680px */}
+          <div className="bg-[#191919] rounded-[24px] w-[664px] h-[680px] p-8 flex flex-col">
+            {/* Header */}
+            <div className="mb-8">
+              <h2 className="text-white text-lg font-medium leading-none tracking-[-0.3962px]">
+                Новый лист
+              </h2>
+            </div>
+
+            {/* Content - Растет, занимает доступное пространство */}
+            <div className="flex-1 flex flex-col">
+              {!uploading ? (
+                <>
+                  {/* Drop Zone */}
+                  <div
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                    className={`flex-1 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center gap-4 transition-colors ${
+                      isDragging || file
+                        ? 'border-[#535353] bg-neutral-800'
+                        : 'border-[#535353] bg-neutral-800'
+                    }`}
+                  >
+                    {!file ? (
+                      <>
+                        {/* Upload Icon */}
+                        <div className="w-6 h-6">
+                          <Image
+                            src="/icons/upload-icon.svg"
+                            alt="Upload"
+                            width={24}
+                            height={24}
+                          />
+                        </div>
+                        {/* Text */}
+                        <p className="text-[#a4a4a4] text-sm font-medium leading-[1.2] tracking-[-0.3962px] text-center">
+                          Перетащите в область файл или загрузите с устройства
+                        </p>
+                        {/* Hidden File Input */}
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          accept="video/*"
+                          onChange={handleFileSelect}
+                          className="hidden"
+                        />
+                        {/* Button */}
+                        <button
+                          onClick={() => fileInputRef.current?.click()}
+                          className="h-[42px] px-4 bg-neutral-100 rounded-lg hover:bg-neutral-200 transition-colors"
+                        >
+                          <span className="text-black text-sm font-medium leading-none tracking-[-0.3962px]">
+                            Выбрать на устройстве
+                          </span>
+                        </button>
+                      </>
+                    ) : (
+                      <div className="flex flex-col items-center gap-4 w-full px-8">
+                        <div className="w-6 h-6">
+                          <Image
+                            src="/icons/upload-icon.svg"
+                            alt="Upload"
+                            width={24}
+                            height={24}
+                          />
+                        </div>
+                        <div className="text-center w-full">
+                          <p className="text-white text-sm font-medium mb-1 truncate px-4">
+                            {file.name}
+                          </p>
+                          <p className="text-[#a4a4a4] text-sm">
+                            {formatFileSize(file.size)}
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => setFile(null)}
+                          className="text-[#a4a4a4] text-sm hover:text-white transition-colors"
+                        >
+                          Удалить
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Error message */}
+                  {error && (
+                    <div className="mt-4 text-red-400 text-sm bg-red-500/10 py-2 px-4 rounded-lg">
+                      {error}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  {/* Uploading State */}
+                  <div className="flex-1 border-2 border-dashed border-[#535353] bg-neutral-800 rounded-2xl flex flex-col items-center justify-center gap-4">
+                    {/* Spinner */}
+                    <div className="w-10 h-10 relative">
+                      <div className="animate-spin">
+                        <Image
+                          src="/icons/spinner.svg"
+                          alt="Loading"
+                          width={40}
+                          height={40}
+                        />
+                      </div>
+                    </div>
+                    <p className="text-[#a4a4a4] text-base font-medium leading-[1.2] tracking-[-0.3962px] text-center">
+                      Загрузка видео...
+                    </p>
+                    <p className="text-[#767676] text-sm font-medium leading-[1.2] tracking-[-0.3962px] text-center">
+                      Пожалуйста, не закрывайте это окно
+                    </p>
+                    
+                    {/* Progress Bar */}
+                    <div className="w-full max-w-md mt-4 px-8">
+                      <div className="flex justify-between text-xs text-gray-400 mb-2">
+                        <span className="truncate max-w-[300px]">{file?.name}</span>
+                        <span>{progress}%</span>
+                      </div>
+                      <div className="w-full bg-[#2a2a2a] rounded-full h-1.5">
+                        <div
+                          className="bg-[#3ea662] h-1.5 rounded-full transition-all duration-300"
+                          style={{ width: `${progress}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="mt-8 flex gap-2 justify-end">
+              <button
+                onClick={onClose}
+                disabled={uploading}
+                className="h-[42px] px-4 bg-[#191919] border border-[#2e2e2e] rounded-lg hover:bg-[#252525] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <span className="text-white text-sm font-medium leading-none tracking-[-0.3962px]">
+                  Отмена
+                </span>
+              </button>
+              <button
+                onClick={handleUpload}
+                disabled={!file || uploading}
+                className="h-[42px] px-4 bg-neutral-100 rounded-lg hover:bg-neutral-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <span className="text-black text-sm font-medium leading-none tracking-[-0.3962px]">
+                  Продолжить
+                </span>
+              </button>
+            </div>
+          </div>
+
+          {/* Close Button - Скругленная кнопка с X */}
           <button
             onClick={onClose}
-            className="p-1 hover:bg-[#2a2a2a] rounded transition-colors"
+            disabled={uploading}
+            className="w-8 h-8 bg-white rounded-[10px] flex items-center justify-center hover:bg-neutral-200 transition-colors disabled:opacity-50 shrink-0"
           >
-            <X className="w-5 h-5 text-gray-400" />
+            <Image src="/icons/close-icon.svg" alt="Close" width={16} height={16} />
           </button>
         </div>
-
-        {/* Content */}
-        <div className="p-6">
-          {!uploading ? (
-            <>
-              {/* Drop Zone */}
-              <div
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
-                className={`border-2 border-dashed rounded-lg p-12 text-center transition-colors ${
-                  isDragging
-                    ? 'border-[#3ea662] bg-[#3ea662]/5'
-                    : 'border-[#2a2a2a] hover:border-[#3a3a3a]'
-                }`}
-              >
-                <div className="flex flex-col items-center">
-                  <div className="w-16 h-16 bg-[#2a2a2a] rounded-full flex items-center justify-center mb-4">
-                    <Upload className="w-8 h-8 text-gray-400" />
-                  </div>
-                  <p className="text-white mb-2">
-                    Перетащите область файла или загрузите из устройства
-                  </p>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="video/*"
-                    onChange={handleFileSelect}
-                    className="hidden"
-                  />
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    className="mt-4 px-6 py-2.5 bg-white text-black font-medium rounded-lg hover:bg-gray-100 transition-colors"
-                  >
-                    Выбрать из устройства
-                  </button>
-                </div>
-              </div>
-
-              {/* Selected File Info */}
-              {file && (
-                <div className="mt-4 p-4 bg-[#2a2a2a] rounded-lg">
-                  <div className="flex items-center justify-between">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-white font-medium truncate">
-                        {file.name}
-                      </p>
-                      <p className="text-sm text-gray-400">
-                        {formatFileSize(file.size)}
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => setFile(null)}
-                      className="ml-4 p-1 hover:bg-[#3a3a3a] rounded transition-colors"
-                    >
-                      <X className="w-4 h-4 text-gray-400" />
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {error && (
-                <div className="mt-4 text-red-400 text-sm bg-red-500/10 py-2 px-4 rounded-lg">
-                  {error}
-                </div>
-              )}
-            </>
-          ) : (
-            <div className="py-8">
-              <div className="text-center mb-6">
-                <div className="inline-flex items-center justify-center w-16 h-16 bg-[#3ea662]/20 rounded-full mb-4">
-                  <Upload className="w-8 h-8 text-[#3ea662]" />
-                </div>
-                <h3 className="text-lg font-medium text-white mb-2">
-                  Загрузка видео...
-                </h3>
-                <p className="text-sm text-gray-400">
-                  Пожалуйста, не закрывайте это окно
-                </p>
-              </div>
-
-              {/* Progress Bar */}
-              <div className="mb-4">
-                <div className="flex justify-between text-sm text-gray-400 mb-2">
-                  <span>{file?.name}</span>
-                  <span>{progress}%</span>
-                </div>
-                <div className="w-full bg-[#2a2a2a] rounded-full h-2">
-                  <div
-                    className="bg-[#3ea662] h-2 rounded-full transition-all duration-300"
-                    style={{ width: `${progress}%` }}
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        {!uploading && (
-          <div className="flex gap-3 p-6 border-t border-[#2a2a2a]">
-            <button
-              onClick={onClose}
-              className="flex-1 px-4 py-2.5 bg-[#2a2a2a] text-white rounded-lg hover:bg-[#3a3a3a] transition-colors"
-            >
-              Отмена
-            </button>
-            <button
-              onClick={handleUpload}
-              disabled={!file}
-              className="flex-1 px-4 py-2.5 bg-white text-black font-medium rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Продолжить
-            </button>
-          </div>
-        )}
       </div>
-    </div>
+    </>
   );
 }
-

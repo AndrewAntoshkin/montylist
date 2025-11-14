@@ -2,8 +2,10 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { TrashIcon } from '@heroicons/react/16/solid';
+import Image from 'next/image';
 import type { Video } from '@/types';
-import { Download, Trash2 } from 'lucide-react';
+import GradientBorder from './GradientBorder';
 
 interface VideoCardProps {
   video: Video;
@@ -25,27 +27,35 @@ export default function VideoCard({ video }: VideoCardProps) {
     switch (video.status) {
       case 'completed':
         return (
-          <span className="px-2 py-1 text-xs rounded bg-[#3ea662] text-white">
-            Загружен
-          </span>
+          <div className="h-6 px-2.5 py-1 bg-[#4d6a2f] rounded-lg flex items-center justify-center">
+            <span className="text-white text-xs font-medium leading-normal">
+              Загружен
+            </span>
+          </div>
         );
       case 'processing':
         return (
-          <span className="px-2 py-1 text-xs rounded bg-[#2a2a2a] text-gray-300">
-            В обработке
-          </span>
+          <div className="h-6 px-2.5 py-1 bg-[#3e3e3e] rounded-lg flex items-center justify-center">
+            <span className="text-[#7e7e7e] text-xs font-medium leading-normal">
+              В обработке
+            </span>
+          </div>
         );
       case 'uploading':
         return (
-          <span className="px-2 py-1 text-xs rounded bg-[#2a2a2a] text-gray-300">
-            Загрузка...
-          </span>
+          <div className="h-6 px-2.5 py-1 bg-[#2a2a2a] rounded-lg flex items-center justify-center">
+            <span className="text-white text-xs font-medium leading-normal">
+              Загрузка...
+            </span>
+          </div>
         );
       case 'error':
         return (
-          <span className="px-2 py-1 text-xs rounded bg-red-500/20 text-red-400">
-            Ошибка
-          </span>
+          <div className="h-6 px-2.5 py-1 bg-red-500/20 rounded-lg flex items-center justify-center">
+            <span className="text-red-400 text-xs font-medium leading-normal">
+              Ошибка
+            </span>
+          </div>
         );
       default:
         return null;
@@ -83,7 +93,8 @@ export default function VideoCard({ video }: VideoCardProps) {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${video.original_filename}_montage.xlsx`;
+      // Безопасное имя файла
+      a.download = `montage_${video.id.substring(0, 8)}.xlsx`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
@@ -94,69 +105,97 @@ export default function VideoCard({ video }: VideoCardProps) {
   };
 
   const cardContent = (
-    <>
-      {/* Thumbnail placeholder */}
-      <div className="aspect-video bg-[#1a1a1a] rounded-lg mb-3 flex items-center justify-center">
-        <svg
-          className="w-12 h-12 text-gray-600"
-          fill="none"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth="2"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
-        </svg>
-      </div>
-
-      <div className="flex items-start justify-between mb-2">
-        <div className="flex-1 min-w-0">
-          <h3 className="text-white font-medium truncate mb-1">
-            {video.original_filename}
-          </h3>
-          <p className="text-sm text-gray-400">{formatDate(video.created_at)}</p>
-        </div>
-      </div>
-
-      <div className="flex items-center justify-between">
+    <div className="flex flex-col gap-5 w-full">
+      {/* Top section: Status and Delete */}
+      <div className="flex items-start justify-between w-full h-8">
         {getStatusBadge()}
         
-        <div className="flex gap-2">
-          {video.status === 'completed' && (
-            <button
-              onClick={handleDownload}
-              className="p-2 hover:bg-[#2a2a2a] rounded transition-colors"
-              title="Скачать"
-            >
-              <Download className="w-4 h-4 text-gray-400 hover:text-white" />
-            </button>
-          )}
-          <button
-            onClick={handleDelete}
-            className="p-2 hover:bg-[#2a2a2a] rounded transition-colors"
-            title="Удалить"
-          >
-            <Trash2 className="w-4 h-4 text-gray-400 hover:text-red-400" />
-          </button>
-        </div>
+        <button
+          onClick={handleDelete}
+          className="h-8 w-8 bg-transparent border-0 flex items-center justify-center hover:opacity-70 transition-opacity"
+          title="Удалить"
+        >
+          <TrashIcon className="w-4 h-4 text-white" />
+        </button>
       </div>
-    </>
+
+      {/* Bottom section: Title, Progress and Date */}
+      <div className="flex flex-col gap-2 w-full">
+        <h3 className="text-[#7e7e7e] text-base font-semibold leading-6 w-full truncate" title={video.original_filename || 'Название фильма'}>
+          {video.original_filename || 'Название фильма'}
+        </h3>
+        
+        {/* Chunk Progress - показываем если есть */}
+        {video.chunk_progress && video.chunk_progress.totalChunks > 0 && (
+          <div className="flex flex-col gap-3 w-full">
+            {video.chunk_progress.chunks.map((chunk) => (
+              <div key={chunk.index} className="flex gap-3 items-center">
+                <div className="relative shrink-0 w-[18px] h-[18px]">
+                  {chunk.status === 'completed' ? (
+                    <Image
+                      src="/icons/check-circle.svg"
+                      alt="Completed"
+                      width={18}
+                      height={18}
+                      className="w-full h-full"
+                    />
+                  ) : chunk.status === 'processing' ? (
+                    <Image
+                      src="/icons/spinner.svg"
+                      alt="Processing"
+                      width={18}
+                      height={18}
+                      className="w-full h-full animate-spin"
+                    />
+                  ) : (
+                    <div className="w-full h-full rounded-full border-2 border-[#3e3e3e]" />
+                  )}
+                </div>
+                <p className={`text-xs font-normal leading-5 ${
+                  chunk.status === 'completed' ? 'text-white' : 
+                  chunk.status === 'processing' ? 'text-[#9f9f9f]' : 
+                  'text-[#5e5e5e]'
+                }`}>
+                  Часть {chunk.index + 1}{chunk.status === 'processing' ? '...' : ''}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+        
+        <p className="text-[#7e7e7e] text-xs font-normal leading-5 w-full">
+          {formatDate(video.created_at)}
+        </p>
+      </div>
+    </div>
   );
+
+  // Для видео в обработке - анимированная градиентная обводка
+  const isProcessing = video.status === 'processing' || video.status === 'uploading';
 
   if (video.status === 'completed') {
     return (
       <Link
         href={`/dashboard/${video.id}`}
-        className="block p-4 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg hover:border-[#3a3a3a] transition-colors"
+        className="block p-4 bg-[#191919] rounded-xl hover:bg-[#1f1f1f] transition-colors"
       >
         {cardContent}
       </Link>
     );
   }
 
+  if (isProcessing) {
+    return (
+      <GradientBorder>
+        <div className="p-4 bg-[#191919] rounded-xl">
+          {cardContent}
+        </div>
+      </GradientBorder>
+    );
+  }
+
   return (
-    <div className="p-4 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg">
+    <div className="p-4 bg-[#191919] rounded-xl">
       {cardContent}
     </div>
   );
