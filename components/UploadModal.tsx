@@ -19,7 +19,29 @@ export default function UploadModal({
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState('');
   const [isDragging, setIsDragging] = useState(false);
+  const [videoDuration, setVideoDuration] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Get video duration from file metadata
+  const getVideoDuration = (file: File): Promise<number> => {
+    return new Promise((resolve, reject) => {
+      const video = document.createElement('video');
+      video.preload = 'metadata';
+      
+      video.onloadedmetadata = () => {
+        window.URL.revokeObjectURL(video.src);
+        const duration = Math.floor(video.duration);
+        resolve(duration);
+      };
+      
+      video.onerror = () => {
+        window.URL.revokeObjectURL(video.src);
+        reject(new Error('Не удалось загрузить метаданные видео'));
+      };
+      
+      video.src = URL.createObjectURL(file);
+    });
+  };
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -31,7 +53,7 @@ export default function UploadModal({
     setIsDragging(false);
   };
 
-  const handleDrop = (e: React.DragEvent) => {
+  const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
 
@@ -39,16 +61,42 @@ export default function UploadModal({
     if (droppedFile && droppedFile.type.startsWith('video/')) {
       setFile(droppedFile);
       setError('');
+      
+      // Get video duration
+      try {
+        const duration = await getVideoDuration(droppedFile);
+        setVideoDuration(duration);
+        
+        // Warn if video is longer than 20 minutes
+        if (duration > 1200) {
+          setError('⚠️ Видео длиннее 20 минут. Рекомендуем использовать кнопку "Длинное видео" для лучшей обработки.');
+        }
+      } catch (err) {
+        console.error('Не удалось получить длительность:', err);
+      }
     } else {
       setError('Пожалуйста, загрузите видео файл');
     }
   };
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
     if (selectedFile && selectedFile.type.startsWith('video/')) {
       setFile(selectedFile);
       setError('');
+      
+      // Get video duration
+      try {
+        const duration = await getVideoDuration(selectedFile);
+        setVideoDuration(duration);
+        
+        // Warn if video is longer than 20 minutes
+        if (duration > 1200) {
+          setError('⚠️ Видео длиннее 20 минут. Рекомендуем использовать кнопку "Длинное видео" для лучшей обработки.');
+        }
+      } catch (err) {
+        console.error('Не удалось получить длительность:', err);
+      }
     } else {
       setError('Пожалуйста, загрузите видео файл');
     }
@@ -65,6 +113,16 @@ export default function UploadModal({
       const formData = new FormData();
       formData.append('file', file);
       formData.append('userId', userId);
+      
+      // Add duration if available
+      if (videoDuration) {
+        formData.append('duration', videoDuration.toString());
+        
+        // Skip auto-process for long videos (will use chunked endpoint)
+        if (videoDuration > 1200) {
+          formData.append('skipAutoProcess', 'true');
+        }
+      }
 
       const xhr = new XMLHttpRequest();
 
@@ -75,12 +133,45 @@ export default function UploadModal({
         }
       });
 
-      xhr.addEventListener('load', () => {
+      xhr.addEventListener('load', async () => {
         if (xhr.status === 200) {
-          // Небольшая задержка чтобы сервер успел создать запись
-          setTimeout(() => {
-            onUploadComplete();
-          }, 500);
+          try {
+            const response = JSON.parse(xhr.responseText);
+            const videoId = response.video?.id;
+            
+            // If video is long and we skipped auto-process, trigger chunked processing
+            if (videoId && videoDuration && videoDuration > 1200) {
+              // Close modal first
+              onUploadComplete();
+              
+              // Trigger chunked processing in background
+              fetch(`/api/videos/${videoId}`)
+                .then(res => res.json())
+                .then(videoData => {
+                  if (videoData.signedUrl) {
+                    return fetch('/api/process-video-chunked', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        videoId: videoId,
+                        videoUrl: videoData.signedUrl,
+                        videoDuration: videoDuration,
+                      }),
+                    });
+                  }
+                })
+                .catch(err => console.error('Processing trigger error:', err));
+            } else {
+              // Normal short video - just close modal
+              setTimeout(() => {
+                onUploadComplete();
+              }, 500);
+            }
+          } catch (err) {
+            console.error('Upload response error:', err);
+            setError('Ошибка при обработке ответа');
+            setUploading(false);
+          }
         } else {
           setError('Ошибка при загрузке файла');
           setUploading(false);
