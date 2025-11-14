@@ -251,14 +251,28 @@ export async function POST(request: NextRequest) {
         const outputText = Array.isArray(output) ? output.join('') : String(output);
         
         console.log(`Chunk ${chunk.chunkIndex + 1} output length:`, outputText.length);
+        
+        // DEBUG: Показываем первые 1000 символов ответа
+        if (outputText.length === 0) {
+          console.error(`❌ Chunk ${chunk.chunkIndex + 1} returned EMPTY output!`);
+          console.log('Full output object:', JSON.stringify(output, null, 2));
+        } else {
+          console.log(`Chunk ${chunk.chunkIndex + 1} output preview (first 1000 chars):`, outputText.substring(0, 1000));
+        }
 
         let parsedScenes = parseGeminiResponse(outputText);
         
         if (parsedScenes.length === 0) {
+          console.log(`⚠️ Primary parser returned 0 scenes, trying alternative format...`);
           parsedScenes = parseAlternativeFormat(outputText);
         }
 
         console.log(`Chunk ${chunk.chunkIndex + 1} parsed scenes count:`, parsedScenes.length);
+        
+        // DEBUG: Если все еще 0 сцен - выведем весь ответ для анализа
+        if (parsedScenes.length === 0 && outputText.length > 0) {
+          console.error(`❌ Both parsers failed! Output text:`, outputText.substring(0, 2000));
+        }
         
         if (parsedScenes.length > 0) {
           console.log(`First scene from chunk ${chunk.chunkIndex + 1} (before timecode adjustment):`, parsedScenes[0]);

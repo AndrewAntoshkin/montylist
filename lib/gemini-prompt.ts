@@ -98,7 +98,13 @@ export function createChunkPrompt(
   endTimecode: string,
   totalChunks: number
 ): string {
-  // Используем БАЗОВЫЙ промпт для всех чанков
-  // Никаких дополнительных инструкций - модель работает лучше так!
+  // Базовый промпт + минимальная инструкция
+  // Модель всегда начинает с 00:00:00, бэкенд корректирует таймкоды
+  if (totalChunks > 1) {
+    return `${MONTAGE_ANALYSIS_PROMPT}
+
+⚠️ Это часть ${chunkIndex + 1} из ${totalChunks}. Анализируй с таймкода 00:00:00.`;
+  }
+  
   return MONTAGE_ANALYSIS_PROMPT;
 }
