@@ -34,30 +34,32 @@ function parseScene(timecode: string, content: string): ParsedScene | null {
     const startTimecode = normalizeTimecode(timecodeMatch[1]);
     const endTimecode = normalizeTimecode(timecodeMatch[2]);
     
-    // Extract plan type - NEW FORMAT: **План:** Кр.
-    const planTypeMatch = content.match(/\*\*План:\*\*\s*([^\n*]+)/i);
+    // Extract plan type - supports both formats:
+    // Format 1: **План:** Кр.
+    // Format 2: *   **План:** Кр.
+    const planTypeMatch = content.match(/\*{1,3}\s*\*\*План:\*\*\s*([^\n*]+)/i);
     const planType = planTypeMatch ? planTypeMatch[1].trim() : '';
     
-    // Extract "Содержание" field - now contains detailed description
+    // Extract "Содержание" field
+    // Supports inline format: *   **Содержание:** текст.
     let description = '';
-    const contentMatch = content.match(/\*\*Содержание:\*\*\s*([^*]+?)(?=\s*\*\*|$)/is);
+    const contentMatch = content.match(/\*{1,3}\s*\*\*Содержание:\*\*\s*([^*]+?)(?=\s*\*{1,3}\s*\*\*|$)/is);
     if (contentMatch) {
       description = contentMatch[1].trim();
-      // Clean up bullet points and extra whitespace
+      // Clean up
       description = description.replace(/^\*\s+/, '').trim();
-      // Remove extra newlines
-      description = description.replace(/\n\s*\n/g, '\n').trim();
+      description = description.replace(/\n\s*\n/g, ' ').trim();
     }
     
     // Extract dialogues/sounds 
-    // NEW FORMAT: **Диалоги/Музыка:** contains all audio content
+    // Supports inline format: *   **Диалоги/Музыка:** текст.
     let dialogues = '';
-    const dialoguesMatch = content.match(/\*\*Диалоги\/Музыка:\*\*\s*([^*]+?)(?=\s*\*\*|$)/is);
+    const dialoguesMatch = content.match(/\*{1,3}\s*\*\*Диалоги\/Музыка:\*\*\s*([^*]+?)(?=\s*\*{1,3}\s*\*\*|$)/is);
     if (dialoguesMatch) {
       dialogues = dialoguesMatch[1].trim();
       // Clean up formatting
       dialogues = dialogues.replace(/^\s*-\s*/gm, '').trim();
-      dialogues = dialogues.replace(/\n\s*\n/g, '\n').trim();
+      dialogues = dialogues.replace(/\n\s*\n/g, ' ').trim();
     }
     
     // FALLBACK: Try old format (individual Диалог/ГЗК/НДП/Музыка fields)
