@@ -55,6 +55,9 @@ export async function POST(request: NextRequest) {
       .update({ status: 'processing' })
       .eq('id', videoId);
 
+    // Track temp files - declare before try block so accessible in all catch blocks
+    let tempFiles: string[] = [];
+
     try {
       // Create chunks based on video duration
       const chunks = createVideoChunks(videoDuration);
@@ -116,9 +119,6 @@ export async function POST(request: NextRequest) {
         throw new Error('Failed to create montage sheet');
       }
 
-      // Track all temp files for cleanup (define here so it's accessible in catch)
-      let tempFiles: string[] = [];
-      
       // Download original video to temp location
       const tempDir = '/tmp/video-chunks';
       if (!fs.existsSync(tempDir)) {
