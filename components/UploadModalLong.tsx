@@ -102,6 +102,8 @@ export default function UploadModalLong({
       return;
     }
 
+    console.log('🚀 Starting upload:', file.name, 'Duration:', videoDuration);
+
     setUploading(true);
     setProgress(0);
     setError('');
@@ -113,6 +115,8 @@ export default function UploadModalLong({
       formData.append('duration', videoDuration.toString());
       formData.append('skipAutoProcess', 'true'); // Отключаем автоматический процесс
 
+      console.log('📤 Sending upload request...');
+
       const xhr = new XMLHttpRequest();
 
       xhr.upload.addEventListener('progress', (e) => {
@@ -123,23 +127,33 @@ export default function UploadModalLong({
       });
 
       xhr.addEventListener('load', async () => {
+        console.log('📥 Upload response received. Status:', xhr.status);
+        
         if (xhr.status === 200) {
           try {
             const response = JSON.parse(xhr.responseText);
+            console.log('✅ Upload response:', response);
             const videoId = response.video?.id;
             
             if (!videoId) {
+              console.error('❌ No video ID in response');
               throw new Error('No video ID returned');
             }
+
+            console.log('📹 Video ID:', videoId);
+            console.log('🔄 Closing modal and starting chunked processing...');
 
             // Закрываем модалку сразу, чтобы видеть прогресс
             onUploadComplete();
 
             // Запускаем обработку в фоне (не ждем)
+            console.log('🔗 Fetching signed URL...');
             fetch(`/api/videos/${videoId}`)
               .then(res => res.json())
               .then(videoData => {
+                console.log('✅ Got video data:', videoData);
                 if (videoData.signedUrl) {
+                  console.log('🚀 Starting chunked processing...');
                   // Trigger chunked processing
                   return fetch('/api/process-video-chunked', {
                     method: 'POST',
