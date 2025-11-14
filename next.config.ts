@@ -10,6 +10,8 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ['fluent-ffmpeg', '@ffmpeg-installer/ffmpeg'],
   // Turbopack configuration for Next.js 16
   turbopack: {
+    // Specify workspace root to silence warning
+    root: process.cwd(),
     // Allow external packages
     resolveAlias: {
       'fluent-ffmpeg': 'fluent-ffmpeg',
