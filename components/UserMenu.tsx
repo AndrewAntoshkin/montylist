@@ -96,3 +96,4 @@ export default function UserMenu({ user, profile }: UserMenuProps) {
     </div>
   );
 }
+

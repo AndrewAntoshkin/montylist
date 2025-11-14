@@ -6,8 +6,8 @@ import type { ParsedScene } from '@/types';
 export function parseGeminiResponse(text: string): ParsedScene[] {
   const scenes: ParsedScene[] = [];
   
-  // Split by timecode sections (e.g., **15:20 - 15:29**)
-  const timecodeRegex = /\*\*(\d{1,2}:\d{2}(?::\d{2})?\s*-\s*\d{1,2}:\d{2}(?::\d{2})?)\*\*/g;
+  // Split by timecode sections (e.g., **15:20:30:15 - 15:29:45:20** or **15:20 - 15:29**)
+  const timecodeRegex = /\*\*(\d{1,2}:\d{2}(?::\d{2})?(?::\d{2})?\s*-\s*\d{1,2}:\d{2}(?::\d{2})?(?::\d{2})?)\*\*/g;
   
   const sections = text.split(timecodeRegex);
   
@@ -27,8 +27,11 @@ export function parseGeminiResponse(text: string): ParsedScene[] {
 
 function parseScene(timecode: string, content: string): ParsedScene | null {
   try {
-    // Parse timecode (e.g., "15:20:30 - 15:29:45" or "15:20 - 15:29")
-    const timecodeMatch = timecode.match(/(\d{1,2}:\d{2}(?::\d{2})?)\s*-\s*(\d{1,2}:\d{2}(?::\d{2})?)/);
+    // Parse timecode - supports formats:
+    // HH:MM:SS:FF (with frames)
+    // HH:MM:SS (without frames)
+    // MM:SS (short format)
+    const timecodeMatch = timecode.match(/(\d{1,2}:\d{2}(?::\d{2})?(?::\d{2})?)\s*-\s*(\d{1,2}:\d{2}(?::\d{2})?(?::\d{2})?)/);
     if (!timecodeMatch) return null;
     
     const startTimecode = normalizeTimecode(timecodeMatch[1]);
@@ -98,17 +101,20 @@ function parseScene(timecode: string, content: string): ParsedScene | null {
 }
 
 /**
- * Normalizes timecode to HH:MM:SS format
+ * Normalizes timecode to HH:MM:SS:FF format (with frames)
  */
 function normalizeTimecode(timecode: string): string {
   const parts = timecode.split(':');
   
   if (parts.length === 2) {
-    // MM:SS -> 00:MM:SS
-    return `00:${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}`;
+    // MM:SS -> 00:MM:SS:00
+    return `00:${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}:00`;
   } else if (parts.length === 3) {
-    // HH:MM:SS
-    return `${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}:${parts[2].padStart(2, '0')}`;
+    // HH:MM:SS -> HH:MM:SS:00
+    return `${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}:${parts[2].padStart(2, '0')}:00`;
+  } else if (parts.length === 4) {
+    // HH:MM:SS:FF -> already correct format
+    return `${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}:${parts[2].padStart(2, '0')}:${parts[3].padStart(2, '0')}`;
   }
   
   return timecode;
@@ -126,8 +132,8 @@ export function parseAlternativeFormat(text: string): ParsedScene[] {
   for (const line of lines) {
     const trimmedLine = line.trim();
     
-    // Check for timecode line
-    const timecodeMatch = trimmedLine.match(/^(\d{1,2}:\d{2}(?::\d{2})?)\s*-\s*(\d{1,2}:\d{2}(?::\d{2})?)/);
+    // Check for timecode line - supports HH:MM:SS:FF or HH:MM:SS or MM:SS
+    const timecodeMatch = trimmedLine.match(/^(\d{1,2}:\d{2}(?::\d{2})?(?::\d{2})?)\s*-\s*(\d{1,2}:\d{2}(?::\d{2})?(?::\d{2})?)/);
     if (timecodeMatch) {
       // Save previous scene if exists
       if (currentScene && currentScene.start_timecode) {
@@ -194,4 +200,5 @@ export function parseAlternativeFormat(text: string): ParsedScene[] {
   
   return scenes;
 }
+
 

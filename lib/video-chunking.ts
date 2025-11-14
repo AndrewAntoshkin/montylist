@@ -6,32 +6,38 @@ export interface VideoChunk {
   chunkIndex: number;
   startTime: number; // in seconds
   endTime: number; // in seconds
-  startTimecode: string; // HH:MM:SS
-  endTimecode: string; // HH:MM:SS
+  startTimecode: string; // HH:MM:SS:FF
+  endTimecode: string; // HH:MM:SS:FF
 }
 
 /**
- * Convert seconds to HH:MM:SS timecode format
+ * Convert seconds to HH:MM:SS:FF timecode format (with frames)
+ * Assumes 25 fps for frame calculation
  */
 export function secondsToTimecode(seconds: number): string {
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
   const secs = Math.floor(seconds % 60);
+  const frames = Math.floor((seconds % 1) * 25); // 25 fps
   
   return [
     hours.toString().padStart(2, '0'),
     minutes.toString().padStart(2, '0'),
     secs.toString().padStart(2, '0'),
+    frames.toString().padStart(2, '0'),
   ].join(':');
 }
 
 /**
- * Convert HH:MM:SS timecode to seconds
+ * Convert HH:MM:SS:FF timecode to seconds (ignores frames)
  */
 export function timecodeToSeconds(timecode: string): number {
   const parts = timecode.split(':').map(Number);
   
-  if (parts.length === 3) {
+  if (parts.length === 4) {
+    // HH:MM:SS:FF (ignore frames for second calculation)
+    return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  } else if (parts.length === 3) {
     // HH:MM:SS
     return parts[0] * 3600 + parts[1] * 60 + parts[2];
   } else if (parts.length === 2) {
@@ -58,7 +64,7 @@ export function createVideoChunks(videoDuration: number): VideoChunk[] {
         chunkIndex: 0,
         startTime: 0,
         endTime: videoDuration,
-        startTimecode: '00:00:00',
+        startTimecode: '00:00:00:00',
         endTimecode: secondsToTimecode(videoDuration),
       },
     ];

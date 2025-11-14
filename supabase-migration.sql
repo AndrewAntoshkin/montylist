@@ -206,3 +206,4 @@ CREATE TRIGGER set_updated_at_entries
   BEFORE UPDATE ON public.montage_entries
   FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
 
+
