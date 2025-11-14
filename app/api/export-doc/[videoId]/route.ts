@@ -294,7 +294,7 @@ export async function GET(
     const safeFilename = `montage_${videoId.substring(0, 8)}.docx`;
 
     // Return as downloadable file
-    return new NextResponse(buffer, {
+    return new NextResponse(new Uint8Array(buffer), {
       headers: {
         'Content-Type':
           'application/vnd.openxmlformats-officedocument.wordprocessingml.document',

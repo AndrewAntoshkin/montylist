@@ -5,9 +5,9 @@ const nextConfig: NextConfig = {
     serverActions: {
       bodySizeLimit: '100mb',
     },
-    // External packages for server components
-    serverComponentsExternalPackages: ['fluent-ffmpeg', '@ffmpeg-installer/ffmpeg'],
   },
+  // External packages for server components (moved from experimental in Next.js 16)
+  serverExternalPackages: ['fluent-ffmpeg', '@ffmpeg-installer/ffmpeg'],
   // Turbopack configuration for Next.js 16
   turbopack: {
     // Allow external packages
