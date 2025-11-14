@@ -116,6 +116,9 @@ export async function POST(request: NextRequest) {
         throw new Error('Failed to create montage sheet');
       }
 
+      // Track all temp files for cleanup (define here so it's accessible in catch)
+      let tempFiles: string[] = [];
+      
       // Download original video to temp location
       const tempDir = '/tmp/video-chunks';
       if (!fs.existsSync(tempDir)) {
@@ -138,8 +141,8 @@ export async function POST(request: NextRequest) {
         tempDir
       );
       
-      // Track all temp files for cleanup
-      const tempFiles = [originalVideoPath, ...chunkFiles.map(c => c.localPath)];
+      // Initialize temp files list
+      tempFiles = [originalVideoPath, ...chunkFiles.map(c => c.localPath)];
       
       // Process each chunk
       let allParsedScenes: any[] = [];
