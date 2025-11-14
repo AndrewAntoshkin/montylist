@@ -1,4 +1,6 @@
-export const MONTAGE_ANALYSIS_PROMPT = `ЗАДАЧА:
+export const MONTAGE_ANALYSIS_PROMPT = `Ты - профессиональный монтажер. Твоя задача - создать подробный монтажный лист из видео.
+
+ЗАДАЧА:
 
 Проанализируй это видео и создай детальный монтажный лист в формате кинопроизводства. Для КАЖДОГО плана укажи:
 
@@ -98,12 +100,13 @@ export function createChunkPrompt(
   endTimecode: string,
   totalChunks: number
 ): string {
-  // Базовый промпт + минимальная инструкция
-  // Модель всегда начинает с 00:00:00, бэкенд корректирует таймкоды
+  // Простая инструкция для чанков - модель выдает таймкоды с 00:00:00
+  // Бэкенд корректирует их добавляя chunk.startTime
   if (totalChunks > 1) {
     return `${MONTAGE_ANALYSIS_PROMPT}
 
-⚠️ Это часть ${chunkIndex + 1} из ${totalChunks}. Анализируй с таймкода 00:00:00.`;
+⚠️ Это часть ${chunkIndex + 1} из ${totalChunks} всего фильма. 
+Анализируй видео начиная с таймкода 00:00:00.`;
   }
   
   return MONTAGE_ANALYSIS_PROMPT;
