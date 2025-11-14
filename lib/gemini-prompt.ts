@@ -98,14 +98,7 @@ export function createChunkPrompt(
   endTimecode: string,
   totalChunks: number
 ): string {
-  // Простой промпт для всех чанков - без сложных инструкций про таймкоды
-  // Модель выдает таймкоды с 00:00:00, мы корректируем их на бэкенде
-  if (totalChunks > 1) {
-    return `${MONTAGE_ANALYSIS_PROMPT}
-
-⚠️ ВАЖНО: Это часть ${chunkIndex + 1} из ${totalChunks} всего видео.
-Анализируй видео с начала. Используй таймкоды начиная с 00:00:00.`;
-  }
-  
+  // Используем БАЗОВЫЙ промпт для всех чанков
+  // Никаких дополнительных инструкций - модель работает лучше так!
   return MONTAGE_ANALYSIS_PROMPT;
 }
