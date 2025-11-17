@@ -7,8 +7,11 @@ export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
+  let videoId: string | undefined;
+  
   try {
-    const { videoId } = await request.json();
+    const body = await request.json();
+    videoId = body.videoId;
 
     if (!videoId) {
       return NextResponse.json(
@@ -125,7 +128,7 @@ export async function POST(request: NextRequest) {
       .from('videos')
       .update({ 
         status: 'completed',
-        processed_at: new Date().toISOString()
+        completed_at: new Date().toISOString()
       })
       .eq('id', videoId);
 
@@ -155,18 +158,18 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Error finalizing processing:', error);
 
-    // Try to update video status to failed
-    try {
-      const { videoId } = await request.json();
-      if (videoId) {
+    // Try to update video status to failed using videoId from outer scope
+    if (videoId) {
+      try {
         const supabase = createServiceRoleClient();
         await supabase
           .from('videos')
           .update({ status: 'failed' })
           .eq('id', videoId);
+        console.log(`✅ Updated video ${videoId} status to failed`);
+      } catch (updateError) {
+        console.error('Error updating video status to failed:', updateError);
       }
-    } catch (updateError) {
-      console.error('Error updating video status:', updateError);
     }
 
     return NextResponse.json(
