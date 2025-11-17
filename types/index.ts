@@ -23,6 +23,23 @@ export interface ChunkProgress {
   }>;
 }
 
+export interface FilmMetadata {
+  producer_company?: string; // Фирма-производитель
+  release_year?: string; // Год выпуска
+  country?: string; // Страна производства
+  screenwriter?: string; // Автор (ы) сценария
+  director?: string; // Режиссер-постановщик
+  copyright_holder?: string; // Правообладатель (и)
+  duration_text?: string; // Продолжительность фильма (текстовое)
+  episodes_count?: string; // Количество серий
+  frame_format?: string; // Формат кадра
+  color_format?: string; // Цветной / черно-белый
+  media_carrier?: string; // Носитель информации
+  original_language?: string; // Язык оригинала
+  subtitles_language?: string; // Язык надписей
+  audio_language?: string; // Язык фонограммы
+}
+
 export interface Video {
   id: string;
   user_id: string;
@@ -35,6 +52,7 @@ export interface Video {
   error_message?: string;
   replicate_prediction_id?: string;
   chunk_progress?: ChunkProgress; // метаданные прогресса по чанкам
+  film_metadata?: FilmMetadata; // метаданные фильма
   created_at: string;
   updated_at: string;
   completed_at?: string;

@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
-import { Jost } from "next/font/google";
+import { Inter } from "next/font/google";
 import { Toaster } from 'sonner';
+import Footer from '@/components/Footer';
 import "./globals.css";
 
-const jost = Jost({
-  variable: "--font-jost",
+const inter = Inter({
+  variable: "--font-inter",
   subsets: ["latin", "cyrillic"],
   display: 'swap',
   weight: ['400', '500', '600', '700'],
@@ -23,9 +24,12 @@ export default function RootLayout({
   return (
     <html lang="ru">
       <body
-        className={`${jost.variable} font-sans antialiased`}
+        className={`${inter.variable} font-sans antialiased flex flex-col min-h-screen`}
       >
-        {children}
+        <div className="flex-1 flex flex-col">
+          {children}
+        </div>
+        <Footer />
         <Toaster 
           position="top-center" 
           theme="dark"

@@ -25,7 +25,19 @@ export default function Header({ user, profile }: HeaderProps = {}) {
           {/* Navigation links */}
           <div className="flex items-center gap-6">
             <Link
-              href="#"
+              href="/dashboard"
+              className="text-[#eaeaeb] text-[14px] font-medium tracking-[-0.098px] leading-[22px] hover:text-white transition-colors"
+            >
+              Листы
+            </Link>
+            <Link
+              href="/pricing"
+              className="text-[#eaeaeb] text-[14px] font-medium tracking-[-0.098px] leading-[22px] hover:text-white transition-colors"
+            >
+              Планы
+            </Link>
+            <Link
+              href="/about"
               className="text-[#eaeaeb] text-[14px] font-medium tracking-[-0.098px] leading-[22px] hover:text-white transition-colors"
             >
               Про сервис

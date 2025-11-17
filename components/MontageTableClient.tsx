@@ -107,12 +107,12 @@ export default function MontageTableClient({
   };
 
   return (
-    <div className="min-h-screen bg-[#191919]">
+    <div className="flex-1 flex flex-col bg-[#191919]">
       {/* Header */}
       <Header user={user} profile={profile} />
 
       {/* Main Content */}
-      <main className="pt-[62px] min-h-screen bg-[#101010]">
+      <main className="pt-[62px] flex-1 bg-[#101010]">
         <div className="max-w-[1400px] mx-auto px-8 py-6">
           {/* Top Section */}
           <div className="flex flex-col gap-4 mb-4">

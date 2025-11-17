@@ -26,6 +26,8 @@ export async function POST(request: NextRequest) {
     const userId = formData.get('userId') as string;
     const duration = formData.get('duration') as string | null;
     const skipAutoProcess = formData.get('skipAutoProcess') as string | null; // для chunked процесса
+    const filmMetadataStr = formData.get('filmMetadata') as string | null;
+    const filmMetadata = filmMetadataStr ? JSON.parse(filmMetadataStr) : null;
 
     if (!file) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 });
@@ -90,6 +92,7 @@ export async function POST(request: NextRequest) {
         duration: videoDuration,
         status: 'processing',
         chunk_progress_json: chunkProgress,
+        film_metadata_json: filmMetadata,
       })
       .select()
       .single();

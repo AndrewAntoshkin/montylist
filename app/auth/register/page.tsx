@@ -62,7 +62,7 @@ export default function RegisterPage() {
 
   if (success) {
     return (
-      <div className="bg-[#101010] relative w-full h-screen">
+      <div className="bg-[#101010] relative w-full flex-1">
         <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[364px] text-center">
           <div className="mb-8">
             <div className="inline-flex items-center justify-center w-16 h-16 bg-[#3ea662] rounded-full mb-4">
@@ -102,7 +102,7 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="bg-[#101010] relative w-full h-screen">
+    <div className="bg-[#101010] relative w-full flex-1">
       <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[364px] flex flex-col gap-[28px] items-center">
         {/* Logo and tagline */}
         <div className="flex flex-col gap-[16px] items-center justify-end w-full">

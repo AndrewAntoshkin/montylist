@@ -44,7 +44,7 @@ export default async function MontagePage({ params }: PageProps) {
   if (sheetError || !sheet) {
     // Video exists but no montage sheet yet (might be processing)
     return (
-      <div className="min-h-screen bg-[#191919] flex items-center justify-center">
+      <div className="flex-1 bg-[#191919] flex items-center justify-center">
         <div className="text-center">
           <div className="inline-flex items-center justify-center w-16 h-16 bg-[#101010] rounded-full mb-4">
             <div className="w-8 h-8 border-4 border-[#2e2e2e] border-t-white rounded-full animate-spin"></div>

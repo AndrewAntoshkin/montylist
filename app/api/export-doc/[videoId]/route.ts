@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { Document, Paragraph, TextRun, Table, TableRow, TableCell, AlignmentType, WidthType, BorderStyle, HeadingLevel } from 'docx';
+import { Document, Paragraph, TextRun, Table, TableRow, TableCell, AlignmentType, WidthType, BorderStyle, PageOrientation, PageBreak } from 'docx';
 
 export async function GET(
   request: NextRequest,
@@ -64,91 +64,282 @@ export async function GET(
     const doc = new Document({
       sections: [
         {
+          properties: {
+            page: {
+              // Landscape orientation - A4 landscape
+              size: {
+                width: 16838,  // 29.7 cm in twips
+                height: 11906, // 21 cm in twips
+                orientation: PageOrientation.LANDSCAPE,
+              },
+              margin: {
+                top: 850,    // ~1.5cm
+                bottom: 850, // ~1.5cm
+                left: 850,   // 1.5cm
+                right: 850,  // 1.5cm
+              },
+            },
+          },
           children: [
-            // Title Page
+            // Title: МОНТАЖНЫЙ ЛИСТ - 30pt centered
             new Paragraph({
-              text: 'МОНТАЖНЫЕ ЛИСТЫ',
+              children: [
+                new TextRun({
+                  text: 'МОНТАЖНЫЕ ЛИСТЫ',
+                  size: 60, // 30pt * 2
+                  bold: true,
+                }),
+              ],
               alignment: AlignmentType.CENTER,
-              spacing: { before: 4000, after: 400 },
-              style: 'Heading1',
+              spacing: { before: 400, after: 400 },
+            }),
+            
+            // Empty line 1
+            new Paragraph({
+              text: '',
+              spacing: { after: 200 },
+            }),
+            
+            // Empty line 2
+            new Paragraph({
+              text: '',
+              spacing: { after: 200 },
+            }),
+            
+            // Video name - 16pt centered, capitalized first letter
+            new Paragraph({
+              children: [
+                new TextRun({
+                  text: (video.original_filename || 'Название видео').charAt(0).toUpperCase() + (video.original_filename || 'Название видео').slice(1),
+                  size: 32, // 16pt * 2
+                }),
+              ],
+              alignment: AlignmentType.CENTER,
+              spacing: { after: 400 },
+            }),
+            
+            // Empty line 3
+            new Paragraph({
+              text: '',
+              spacing: { after: 200 },
+            }),
+            
+            // Empty line 4
+            new Paragraph({
+              text: '',
+              spacing: { after: 200 },
+            }),
+            
+            // Film information - 14pt left aligned
+            new Paragraph({
+              children: [
+                new TextRun({
+                  text: 'Фирма-производитель – ',
+                  size: 28, // 14pt * 2
+                }),
+                new TextRun({
+                  text: video.film_metadata_json?.producer_company || '',
+                  size: 28,
+                }),
+              ],
+              alignment: AlignmentType.LEFT,
+              spacing: { after: 100 },
             }),
             new Paragraph({
               children: [
                 new TextRun({
-                  text: video.original_filename || 'Название фильма',
-                  italics: true,
+                  text: 'Год выпуска – ',
+                  size: 28,
+                }),
+                new TextRun({
+                  text: video.film_metadata_json?.release_year || '',
                   size: 28,
                 }),
               ],
-              alignment: AlignmentType.CENTER,
-              spacing: { after: 6000 },
+              alignment: AlignmentType.LEFT,
+              spacing: { after: 100 },
             }),
             new Paragraph({
-              text: '',
-              spacing: { after: 8000 },
+              children: [
+                new TextRun({
+                  text: 'Страна производства – ',
+                  size: 28,
+                }),
+                new TextRun({
+                  text: video.film_metadata_json?.country || '',
+                  size: 28,
+                }),
+              ],
+              alignment: AlignmentType.LEFT,
+              spacing: { after: 100 },
             }),
             new Paragraph({
-              text: 'Фирма-производитель – ',
-              spacing: { before: 6000 },
-            }),
-          ],
-        },
-        {
-          children: [
-            // Film Information Section
-            new Paragraph({
-              text: 'Год выпуска – ',
-            }),
-            new Paragraph({
-              text: 'Страна производства – ',
-            }),
-            new Paragraph({
-              text: 'Автор (ы) сценария – ',
+              children: [
+                new TextRun({
+                  text: 'Автор (ы) сценария – ',
+                  size: 28,
+                }),
+                new TextRun({
+                  text: video.film_metadata_json?.screenwriter || '',
+                  size: 28,
+                }),
+              ],
+              alignment: AlignmentType.LEFT,
+              spacing: { after: 100 },
             }),
             new Paragraph({
-              text: 'Режиссер-постановщик – ',
+              children: [
+                new TextRun({
+                  text: 'Режиссер-постановщик – ',
+                  size: 28,
+                }),
+                new TextRun({
+                  text: video.film_metadata_json?.director || '',
+                  size: 28,
+                }),
+              ],
+              alignment: AlignmentType.LEFT,
+              spacing: { after: 100 },
             }),
             new Paragraph({
-              text: 'Правообладатель (и) – ',
+              children: [
+                new TextRun({
+                  text: 'Правообладатель (и) – ',
+                  size: 28,
+                }),
+                new TextRun({
+                  text: video.film_metadata_json?.copyright_holder || '',
+                  size: 28,
+                }),
+              ],
+              alignment: AlignmentType.LEFT,
+              spacing: { after: 100 },
             }),
             new Paragraph({
-              text: 'Продолжительность фильма ',
+              children: [
+                new TextRun({
+                  text: 'Продолжительность фильма ',
+                  size: 28,
+                }),
+                new TextRun({
+                  text: video.film_metadata_json?.duration_text || '',
+                  size: 28,
+                }),
+              ],
+              alignment: AlignmentType.LEFT,
+              spacing: { after: 100 },
             }),
             new Paragraph({
-              text: 'Количество серий – ',
+              children: [
+                new TextRun({
+                  text: 'Количество серий – ',
+                  size: 28,
+                }),
+                new TextRun({
+                  text: video.film_metadata_json?.episodes_count || '',
+                  size: 28,
+                }),
+              ],
+              alignment: AlignmentType.LEFT,
+              spacing: { after: 100 },
             }),
             new Paragraph({
-              text: 'Формат кадра',
+              children: [
+                new TextRun({
+                  text: 'Формат кадра ',
+                  size: 28,
+                }),
+                new TextRun({
+                  text: video.film_metadata_json?.frame_format || '',
+                  size: 28,
+                }),
+              ],
+              alignment: AlignmentType.LEFT,
+              spacing: { after: 100 },
             }),
             new Paragraph({
-              text: 'Цветной / черно-белый – ',
+              children: [
+                new TextRun({
+                  text: 'Цветной / черно-белый – ',
+                  size: 28,
+                }),
+                new TextRun({
+                  text: video.film_metadata_json?.color_format || '',
+                  size: 28,
+                }),
+              ],
+              alignment: AlignmentType.LEFT,
+              spacing: { after: 100 },
             }),
             new Paragraph({
-              text: 'Носитель информации – ',
+              children: [
+                new TextRun({
+                  text: 'Носитель информации – ',
+                  size: 28,
+                }),
+                new TextRun({
+                  text: video.film_metadata_json?.media_carrier || '',
+                  size: 28,
+                }),
+              ],
+              alignment: AlignmentType.LEFT,
+              spacing: { after: 100 },
             }),
             new Paragraph({
-              text: 'Язык оригинала – ',
+              children: [
+                new TextRun({
+                  text: 'Язык оригинала – ',
+                  size: 28,
+                }),
+                new TextRun({
+                  text: video.film_metadata_json?.original_language || '',
+                  size: 28,
+                }),
+              ],
+              alignment: AlignmentType.LEFT,
+              spacing: { after: 100 },
             }),
             new Paragraph({
-              text: 'Язык надписей – ',
+              children: [
+                new TextRun({
+                  text: 'Язык надписей – ',
+                  size: 28,
+                }),
+                new TextRun({
+                  text: video.film_metadata_json?.subtitles_language || '',
+                  size: 28,
+                }),
+              ],
+              alignment: AlignmentType.LEFT,
+              spacing: { after: 100 },
             }),
             new Paragraph({
-              text: 'Язык фонограммы – ',
-            }),
-            new Paragraph({
-              text: '',
+              children: [
+                new TextRun({
+                  text: 'Язык фонограммы – ',
+                  size: 28,
+                }),
+                new TextRun({
+                  text: video.film_metadata_json?.audio_language || '',
+                  size: 28,
+                }),
+              ],
+              alignment: AlignmentType.LEFT,
               spacing: { after: 400 },
             }),
-          ],
-        },
-        {
-          children: [
-            // Montage Table
+            
+            // Page break - table starts on second page
+            new Paragraph({
+              children: [new PageBreak()],
+            }),
+            
+            // Montage Table - 10pt, full width
             new Table({
               width: {
                 size: 100,
                 type: WidthType.PERCENTAGE,
               },
+              columnWidths: [1000, 1500, 1500, 1200, 3400, 3500], // Proportional widths in DXA units
               rows: [
                 // Header Row
                 new TableRow({
@@ -156,7 +347,12 @@ export async function GET(
                     new TableCell({
                       children: [
                         new Paragraph({
-                          text: '№ плана',
+                          children: [
+                            new TextRun({
+                              text: '№ плана',
+                              size: 20, // 10pt * 2
+                            }),
+                          ],
                           alignment: AlignmentType.CENTER,
                         }),
                       ],
@@ -165,7 +361,12 @@ export async function GET(
                     new TableCell({
                       children: [
                         new Paragraph({
-                          text: 'Начальный тайм-код плана (часы: мин.: сек.: кадры)',
+                          children: [
+                            new TextRun({
+                              text: 'Начальный тайм-код плана (часы: мин.: сек.: кадры)',
+                              size: 20,
+                            }),
+                          ],
                           alignment: AlignmentType.CENTER,
                         }),
                       ],
@@ -174,7 +375,12 @@ export async function GET(
                     new TableCell({
                       children: [
                         new Paragraph({
-                          text: 'Конечный тайм-код плана (часы: мин.: сек.: кадры)',
+                          children: [
+                            new TextRun({
+                              text: 'Конечный тайм-код плана (часы: мин.: сек.: кадры)',
+                              size: 20,
+                            }),
+                          ],
                           alignment: AlignmentType.CENTER,
                         }),
                       ],
@@ -183,7 +389,12 @@ export async function GET(
                     new TableCell({
                       children: [
                         new Paragraph({
-                          text: 'Вид плана',
+                          children: [
+                            new TextRun({
+                              text: 'Вид плана',
+                              size: 20,
+                            }),
+                          ],
                           alignment: AlignmentType.CENTER,
                         }),
                       ],
@@ -192,7 +403,12 @@ export async function GET(
                     new TableCell({
                       children: [
                         new Paragraph({
-                          text: 'Содержание (описание) плана, титры',
+                          children: [
+                            new TextRun({
+                              text: 'Содержание (описание) плана, титры',
+                              size: 20,
+                            }),
+                          ],
                           alignment: AlignmentType.CENTER,
                         }),
                       ],
@@ -201,7 +417,12 @@ export async function GET(
                     new TableCell({
                       children: [
                         new Paragraph({
-                          text: 'Монологи, разговоры, песни, субтитры Музыка.',
+                          children: [
+                            new TextRun({
+                              text: 'Монологи, разговоры, песни, субтитры Музыка.',
+                              size: 20,
+                            }),
+                          ],
                           alignment: AlignmentType.CENTER,
                         }),
                       ],
@@ -217,7 +438,12 @@ export async function GET(
                         new TableCell({
                           children: [
                             new Paragraph({
-                              text: entry.plan_number.toString(),
+                              children: [
+                                new TextRun({
+                                  text: entry.plan_number.toString(),
+                                  size: 20,
+                                }),
+                              ],
                               alignment: AlignmentType.CENTER,
                             }),
                           ],
@@ -225,7 +451,12 @@ export async function GET(
                         new TableCell({
                           children: [
                             new Paragraph({
-                              text: entry.start_timecode,
+                              children: [
+                                new TextRun({
+                                  text: entry.start_timecode,
+                                  size: 20,
+                                }),
+                              ],
                               alignment: AlignmentType.CENTER,
                             }),
                           ],
@@ -233,7 +464,12 @@ export async function GET(
                         new TableCell({
                           children: [
                             new Paragraph({
-                              text: entry.end_timecode,
+                              children: [
+                                new TextRun({
+                                  text: entry.end_timecode,
+                                  size: 20,
+                                }),
+                              ],
                               alignment: AlignmentType.CENTER,
                             }),
                           ],
@@ -241,45 +477,91 @@ export async function GET(
                         new TableCell({
                           children: [
                             new Paragraph({
-                              text: entry.plan_type || '',
+                              children: [
+                                new TextRun({
+                                  text: entry.plan_type || '',
+                                  size: 20,
+                                }),
+                              ],
                               alignment: AlignmentType.CENTER,
                             }),
                           ],
                         }),
                         new TableCell({
-                          children: [new Paragraph(entry.description || '')],
+                          children: [
+                            new Paragraph({
+                              children: [
+                                new TextRun({
+                                  text: entry.description || '',
+                                  size: 20,
+                                }),
+                              ],
+                            }),
+                          ],
                         }),
                         new TableCell({
-                          children: [new Paragraph(entry.dialogues || '')],
+                          children: [
+                            new Paragraph({
+                              children: [
+                                new TextRun({
+                                  text: entry.dialogues || '',
+                                  size: 20,
+                                }),
+                              ],
+                            }),
+                          ],
                         }),
                       ],
                     })
                 ),
               ],
             }),
+            
+            // Footer section - 14pt
             new Paragraph({
               text: '',
-              spacing: { before: 800, after: 400 },
+              spacing: { before: 600, after: 400 },
             }),
             new Paragraph({
-              text: 'Монтажные листы соответствуют копии фильма, принятого к выпуску на экран.',
+              children: [
+                new TextRun({
+                  text: 'Монтажные листы соответствуют копии фильма, принятого к выпуску на экран.',
+                  size: 28, // 14pt * 2
+                }),
+              ],
+              alignment: AlignmentType.LEFT,
+              spacing: { after: 400 },
             }),
             new Paragraph({
               text: '',
-              spacing: { after: 800 },
+              spacing: { after: 200 },
             }),
             new Paragraph({
-              text: 'Руководитель организации ____________  ________________  ____________',
+              children: [
+                new TextRun({
+                  text: 'Руководитель организации ____________  ____________________  ____________',
+                  size: 28,
+                }),
+              ],
+              alignment: AlignmentType.LEFT,
             }),
             new Paragraph({
-              text: '',
-              spacing: { after: 1600 },
+              children: [
+                new TextRun({
+                  text: '                                                       подпись             расшифровка подписи   дата',
+                  size: 28,
+                }),
+              ],
+              alignment: AlignmentType.LEFT,
             }),
             new Paragraph({
-              text: '                          подпись       расшифровка подписи      дата',
-            }),
-            new Paragraph({
-              text: '                                                М.П.',
+              children: [
+                new TextRun({
+                  text: '                                                                                                                                                                                 М.П.',
+                  size: 28,
+                }),
+              ],
+              alignment: AlignmentType.LEFT,
             }),
           ],
         },
@@ -309,4 +591,5 @@ export async function GET(
     );
   }
 }
+
 

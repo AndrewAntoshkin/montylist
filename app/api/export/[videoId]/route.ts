@@ -64,27 +64,28 @@ export async function GET(
     const workbook = XLSX.utils.book_new();
 
     // Prepare data for Excel with film information section
+    const filmMetadata = video.film_metadata_json || {};
     const data = [
       // Film Information Header
       ['Информация о фильме.'],
       [], // Empty row
       
       // Film Information Table (2 columns: label and value)
-      ['Название', ''],
-      ['Фирма-производитель', ''],
-      ['Год выпуска', ''],
-      ['Страна производства', ''],
-      ['Правообладатель(и)', ''],
-      ['Продолжительность фильма', ''],
-      ['Количество серий', ''],
-      ['Формат кадра', ''],
-      ['Цветной / черно-белый', ''],
-      ['Носитель информации', ''],
-      ['Язык оригинала', ''],
-      ['Язык надписей', ''],
-      ['Язык фонограммы', ''],
-      ['Автор(ы) сценария', ''],
-      ['Режиссер(ы)', ''],
+      ['Название', video.original_filename || ''],
+      ['Фирма-производитель', filmMetadata.producer_company || ''],
+      ['Год выпуска', filmMetadata.release_year || ''],
+      ['Страна производства', filmMetadata.country || ''],
+      ['Правообладатель(и)', filmMetadata.copyright_holder || ''],
+      ['Продолжительность фильма', filmMetadata.duration_text || ''],
+      ['Количество серий', filmMetadata.episodes_count || ''],
+      ['Формат кадра', filmMetadata.frame_format || ''],
+      ['Цветной / черно-белый', filmMetadata.color_format || ''],
+      ['Носитель информации', filmMetadata.media_carrier || ''],
+      ['Язык оригинала', filmMetadata.original_language || ''],
+      ['Язык надписей', filmMetadata.subtitles_language || ''],
+      ['Язык фонограммы', filmMetadata.audio_language || ''],
+      ['Автор(ы) сценария', filmMetadata.screenwriter || ''],
+      ['Режиссер(ы)', filmMetadata.director || ''],
       ['Оператор(ы)', ''],
       ['Композитор(ы)', ''],
       

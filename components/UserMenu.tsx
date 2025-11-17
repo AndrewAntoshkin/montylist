@@ -72,6 +72,14 @@ export default function UserMenu({ user, profile }: UserMenuProps) {
               </div>
             </div>
 
+            {/* Plan */}
+            <div>
+              <label className="text-[#979797] text-xs font-medium">План</label>
+              <div className="mt-1 px-3 py-2 bg-[#101010] border border-[#2e2e2e] rounded-lg">
+                <p className="text-white text-sm">Enterprise</p>
+              </div>
+            </div>
+
             {/* User ID */}
             <div>
               <label className="text-[#979797] text-xs font-medium">ID пользователя</label>

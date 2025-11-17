@@ -3,16 +3,20 @@
 import { useState, useRef } from 'react';
 import Image from 'next/image';
 
+import type { FilmMetadata } from '@/types';
+
 interface UploadModalProps {
   onClose: () => void;
   onUploadComplete: () => void;
   userId: string;
+  filmMetadata?: FilmMetadata | null;
 }
 
 export default function UploadModal({
   onClose,
   onUploadComplete,
   userId,
+  filmMetadata,
 }: UploadModalProps) {
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -122,6 +126,11 @@ export default function UploadModal({
         if (videoDuration > 1200) {
           formData.append('skipAutoProcess', 'true');
         }
+      }
+      
+      // Add film metadata if available
+      if (filmMetadata) {
+        formData.append('filmMetadata', JSON.stringify(filmMetadata));
       }
 
       const xhr = new XMLHttpRequest();

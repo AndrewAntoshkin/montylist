@@ -2,17 +2,20 @@
 
 import { useState, useRef } from 'react';
 import Image from 'next/image';
+import type { FilmMetadata } from '@/types';
 
 interface UploadModalLongProps {
   onClose: () => void;
   onUploadComplete: () => void;
   userId: string;
+  filmMetadata?: FilmMetadata | null;
 }
 
 export default function UploadModalLong({
   onClose,
   onUploadComplete,
   userId,
+  filmMetadata,
 }: UploadModalLongProps) {
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -114,6 +117,11 @@ export default function UploadModalLong({
       formData.append('userId', userId);
       formData.append('duration', videoDuration.toString());
       formData.append('skipAutoProcess', 'true'); // Отключаем автоматический процесс
+      
+      // Add film metadata if available
+      if (filmMetadata) {
+        formData.append('filmMetadata', JSON.stringify(filmMetadata));
+      }
 
       console.log('📤 Sending upload request...');
 

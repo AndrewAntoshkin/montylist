@@ -7,8 +7,7 @@ import { toast } from 'sonner';
 import type { Video, Profile } from '@/types';
 import type { User } from '@supabase/supabase-js';
 import VideoCard from './VideoCard';
-import UploadModal from './UploadModal';
-import UploadModalLong from './UploadModalLong';
+import TwoStepUploadModal from './TwoStepUploadModal';
 import Header from './Header';
 
 interface DashboardClientProps {
@@ -25,8 +24,10 @@ export default function DashboardClient({
   profile,
 }: DashboardClientProps) {
   const [videos, setVideos] = useState<Video[]>(initialVideos);
-  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
-  const [isUploadModalLongOpen, setIsUploadModalLongOpen] = useState(false);
+  const [uploadModalState, setUploadModalState] = useState<{ isOpen: boolean; isLongVideo: boolean }>({
+    isOpen: false,
+    isLongVideo: false,
+  });
   const [activeTab, setActiveTab] = useState<TabType>('ready');
   const router = useRouter();
   const previousVideosRef = useRef<Video[]>(initialVideos);
@@ -100,8 +101,7 @@ export default function DashboardClient({
   }, []);
 
   const handleUploadComplete = () => {
-    setIsUploadModalOpen(false);
-    setIsUploadModalLongOpen(false);
+    setUploadModalState({ isOpen: false, isLongVideo: false });
     // Переключаем на таб "В работе" чтобы показать загруженное видео
     setActiveTab('processing');
     // Показываем уведомление о начале обработки
@@ -113,12 +113,12 @@ export default function DashboardClient({
   };
 
   return (
-    <div className="min-h-screen bg-[#191919]">
+    <div className="flex-1 flex flex-col bg-[#191919]">
       {/* Header */}
       <Header user={user} profile={profile} />
 
       {/* Main Content */}
-      <main className="pt-[62px] min-h-screen bg-[#101010]">
+      <main className="pt-[62px] flex-1 bg-[#101010]">
         <div className="max-w-[1400px] mx-auto px-8 py-6">
           {/* Title and New Buttons */}
           <div className="flex items-center justify-between mb-3">
@@ -127,7 +127,7 @@ export default function DashboardClient({
             </h2>
             <div className="flex gap-2">
               <button
-                onClick={() => setIsUploadModalOpen(true)}
+                onClick={() => setUploadModalState({ isOpen: true, isLongVideo: false })}
                 className="h-9 px-3 py-2.5 bg-neutral-100 rounded-lg flex items-center justify-center hover:bg-neutral-200 transition-colors"
               >
                 <span className="text-black text-sm font-medium leading-none tracking-[-0.3962px]">
@@ -135,7 +135,7 @@ export default function DashboardClient({
                 </span>
               </button>
               <button
-                onClick={() => setIsUploadModalLongOpen(true)}
+                onClick={() => setUploadModalState({ isOpen: true, isLongVideo: true })}
                 className="h-9 px-3 py-2.5 bg-[#2c2c2c] border border-[#3ea662] rounded-lg flex items-center justify-center hover:bg-[#3ea662]/10 transition-colors"
               >
                 <span className="text-[#3ea662] text-sm font-medium leading-none tracking-[-0.3962px]">
@@ -237,7 +237,7 @@ export default function DashboardClient({
                 </p>
                 {activeTab === 'ready' && (
                   <button
-                    onClick={() => setIsUploadModalOpen(true)}
+                    onClick={() => setUploadModalState({ isOpen: true, isLongVideo: false })}
                     className="px-6 py-2.5 bg-white text-black font-medium rounded-lg hover:bg-gray-100 transition-colors"
                   >
                     Загрузить видео
@@ -256,20 +256,12 @@ export default function DashboardClient({
       </main>
 
       {/* Upload Modal */}
-      {isUploadModalOpen && (
-        <UploadModal
-          onClose={() => setIsUploadModalOpen(false)}
+      {uploadModalState.isOpen && (
+        <TwoStepUploadModal
+          onClose={() => setUploadModalState({ isOpen: false, isLongVideo: false })}
           onUploadComplete={handleUploadComplete}
           userId={user.id}
-        />
-      )}
-
-      {/* Upload Modal Long */}
-      {isUploadModalLongOpen && (
-        <UploadModalLong
-          onClose={() => setIsUploadModalLongOpen(false)}
-          onUploadComplete={handleUploadComplete}
-          userId={user.id}
+          isLongVideo={uploadModalState.isLongVideo}
         />
       )}
     </div>
