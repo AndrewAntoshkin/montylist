@@ -153,18 +153,38 @@ export default function UploadModal({
               // Close modal first
               onUploadComplete();
               
-              // Trigger server-side chunk processing (doesn't depend on browser)
-              fetch('/api/process-all-chunks', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ videoId }),
-              })
+              // Two-step processing: init chunks, then process them
+              fetch(`/api/videos/${videoId}`)
                 .then(res => res.json())
-                .then(data => {
-                  if (data.success) {
-                    console.log('✅ Background processing started on server');
-                  } else {
-                    console.error('❌ Failed to start processing:', data.error);
+                .then(async (videoData) => {
+                  if (videoData.signedUrl) {
+                    // Step 1: Initialize and split video into chunks
+                    const initResponse = await fetch('/api/init-chunked-processing', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        videoId,
+                        videoUrl: videoData.signedUrl,
+                        videoDuration,
+                      }),
+                    });
+                    
+                    if (!initResponse.ok) {
+                      throw new Error('Failed to initialize chunks');
+                    }
+                    
+                    // Step 2: Start server-side processing
+                    const processResponse = await fetch('/api/process-all-chunks', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ videoId }),
+                    });
+                    
+                    if (!processResponse.ok) {
+                      throw new Error('Failed to start processing');
+                    }
+                    
+                    console.log('✅ Background processing started');
                   }
                 })
                 .catch(err => console.error('Processing trigger error:', err));

@@ -154,19 +154,46 @@ export default function UploadModalLong({
             // Закрываем модалку сразу, чтобы видеть прогресс
             onUploadComplete();
 
-            // Запускаем обработку в фоне на сервере (не зависит от браузера)
-            console.log('🚀 Starting server-side chunk processing...');
-            fetch('/api/process-all-chunks', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ videoId }),
-            })
+            // Запускаем обработку: сначала init (разрезка), потом process (AI обработка)
+            console.log('🔗 Fetching signed URL...');
+            fetch(`/api/videos/${videoId}`)
               .then(res => res.json())
-              .then(data => {
-                if (data.success) {
+              .then(async (videoData) => {
+                console.log('✅ Got video data:', videoData);
+                if (videoData.signedUrl) {
+                  console.log('🚀 Step 1: Initializing chunks (splitting video)...');
+                  
+                  // Step 1: Initialize and split video into chunks
+                  const initResponse = await fetch('/api/init-chunked-processing', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      videoId,
+                      videoUrl: videoData.signedUrl,
+                      videoDuration,
+                    }),
+                  });
+                  
+                  if (!initResponse.ok) {
+                    throw new Error('Failed to initialize chunks');
+                  }
+                  
+                  const initData = await initResponse.json();
+                  console.log(`✅ Chunks initialized: ${initData.totalChunks} chunks ready`);
+                  
+                  // Step 2: Start server-side processing of all chunks
+                  console.log('🚀 Step 2: Starting background AI processing...');
+                  const processResponse = await fetch('/api/process-all-chunks', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ videoId }),
+                  });
+                  
+                  if (!processResponse.ok) {
+                    throw new Error('Failed to start processing');
+                  }
+                  
                   console.log('✅ Background processing started on server');
-                } else {
-                  console.error('❌ Failed to start processing:', data.error);
                 }
               })
               .catch(err => {

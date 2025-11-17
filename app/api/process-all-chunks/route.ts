@@ -86,6 +86,17 @@ async function processAllChunksInBackground(videoId: string, baseUrl: string) {
       }
 
       console.log(`🎬 Processing chunk ${i + 1}/${chunks.length}...`);
+      console.log(`📦 Chunk data:`, {
+        index: chunk.index,
+        storageUrl: chunk.storageUrl,
+        startTimecode: chunk.startTimecode,
+        endTimecode: chunk.endTimecode,
+      });
+
+      // Validate chunk data
+      if (!chunk.storageUrl) {
+        throw new Error(`Chunk ${i} has no storage URL. Init may have failed.`);
+      }
 
       const chunkResponse = await fetch(`${baseUrl}/api/process-chunk`, {
         method: 'POST',
