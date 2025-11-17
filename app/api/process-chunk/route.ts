@@ -94,6 +94,10 @@ export async function POST(request: NextRequest) {
     // Gemini 2.5 Flash returns output as array of strings, join them
     const aiResponse = Array.isArray(output) ? output.join('') : String(output);
     console.log(`✅ Chunk ${chunkIndex} AI response received (${aiResponse.length} chars)`);
+    
+    // Log first 500 chars of response for debugging
+    console.log(`📝 AI Response preview:`, aiResponse.substring(0, 500));
+    console.log(`📝 AI Response end:`, aiResponse.substring(Math.max(0, aiResponse.length - 500)));
 
     // Parse AI response
     let parsedScenes = parseGeminiResponse(aiResponse);
