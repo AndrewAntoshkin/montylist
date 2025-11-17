@@ -153,23 +153,25 @@ export default function UploadModal({
               // Close modal first
               onUploadComplete();
               
-              // Trigger chunked processing in background
-              fetch(`/api/videos/${videoId}`)
-                .then(res => res.json())
-                .then(videoData => {
-                  if (videoData.signedUrl) {
-                    return fetch('/api/process-video-chunked', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({
-                        videoId: videoId,
-                        videoUrl: videoData.signedUrl,
-                        videoDuration: videoDuration,
-                      }),
-                    });
-                  }
-                })
-                .catch(err => console.error('Processing trigger error:', err));
+              // Trigger chunked processing in background using new 3-step workflow
+              import('@/lib/chunked-processing-client').then(({ startChunkedProcessing }) => {
+                fetch(`/api/videos/${videoId}`)
+                  .then(res => res.json())
+                  .then(videoData => {
+                    if (videoData.signedUrl) {
+                      return startChunkedProcessing(
+                        videoId,
+                        videoData.signedUrl,
+                        videoDuration,
+                        undefined,
+                        (progress) => {
+                          console.log('Processing progress:', progress);
+                        }
+                      );
+                    }
+                  })
+                  .catch(err => console.error('Processing trigger error:', err));
+              });
             } else {
               // Normal short video - just close modal
               setTimeout(() => {

@@ -1,0 +1,192 @@
+import { createServiceRoleClient } from '@/lib/supabase/server';
+import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
+import Replicate from 'replicate';
+import { parseGeminiResponse, parseAlternativeFormat } from '@/lib/parseGeminiResponse';
+import { createChunkPrompt } from '@/lib/gemini-prompt';
+import { timecodeToSeconds } from '@/lib/video-chunking';
+import { createPredictionWithRetry, pollPrediction } from '@/lib/replicate-helper';
+
+const replicate = new Replicate({
+  auth: process.env.REPLICATE_API_TOKEN!,
+});
+
+// 5 minutes timeout per chunk
+export const maxDuration = 300;
+export const dynamic = 'force-dynamic';
+
+export async function POST(request: NextRequest) {
+  try {
+    const { 
+      videoId, 
+      chunkIndex, 
+      chunkStorageUrl, 
+      startTimecode, 
+      endTimecode,
+      filmMetadata 
+    } = await request.json();
+
+    if (!videoId || chunkIndex === undefined || !chunkStorageUrl) {
+      return NextResponse.json(
+        { error: 'Missing required fields: videoId, chunkIndex, chunkStorageUrl' },
+        { status: 400 }
+      );
+    }
+
+    console.log(`🎬 Processing chunk ${chunkIndex} for video ${videoId}`);
+    console.log(`📹 Chunk: ${startTimecode} - ${endTimecode}`);
+
+    const supabase = createServiceRoleClient();
+
+    // Get video and chunk progress
+    const { data: video, error: videoError } = await supabase
+      .from('videos')
+      .select('chunk_progress_json, user_id')
+      .eq('id', videoId)
+      .single();
+
+    if (videoError || !video) {
+      throw new Error('Video not found');
+    }
+
+    const chunkProgress = video.chunk_progress_json;
+    if (!chunkProgress || !chunkProgress.chunks[chunkIndex]) {
+      throw new Error('Chunk progress not found');
+    }
+
+    const totalChunks = chunkProgress.totalChunks || chunkProgress.chunks.length;
+
+    // Update chunk status to processing
+    chunkProgress.currentChunk = chunkIndex;
+    chunkProgress.chunks[chunkIndex].status = 'processing';
+    await supabase
+      .from('videos')
+      .update({ chunk_progress_json: chunkProgress })
+      .eq('id', videoId);
+
+    // Create prompt for this chunk
+    const prompt = createChunkPrompt(chunkIndex, startTimecode, endTimecode, totalChunks);
+    console.log(`📝 Generated prompt for chunk ${chunkIndex}`);
+
+    // Start Replicate prediction
+    console.log(`🚀 Starting Replicate prediction for chunk ${chunkIndex}...`);
+    const prediction = await createPredictionWithRetry(
+      replicate,
+      'lucataco/gemini-2.0-flash-exp:43c5b90da3d51758b2f54ef6a49fd89de22ac12bb6f2f478acffb5a7b0c7e52c',
+      {
+        video: chunkStorageUrl,
+        prompt: prompt,
+        max_tokens: 8096,
+      }
+    );
+
+    console.log(`⏳ Polling prediction ${prediction.id} for chunk ${chunkIndex}...`);
+    const completedPrediction = await pollPrediction(replicate, prediction.id);
+
+    if (completedPrediction.status === 'failed') {
+      throw new Error(`Replicate prediction failed: ${completedPrediction.error}`);
+    }
+
+    const aiResponse = completedPrediction.output;
+    console.log(`✅ Chunk ${chunkIndex} AI response received`);
+
+    // Parse AI response
+    let parsedScenes = parseGeminiResponse(aiResponse);
+    
+    if (parsedScenes.length === 0) {
+      console.log(`⚠️  Primary parser failed, trying alternative format for chunk ${chunkIndex}`);
+      parsedScenes = parseAlternativeFormat(aiResponse);
+    }
+
+    if (parsedScenes.length === 0) {
+      console.warn(`⚠️  No scenes found in chunk ${chunkIndex}`);
+    }
+
+    console.log(`📊 Parsed ${parsedScenes.length} scenes from chunk ${chunkIndex}`);
+
+    // Get sheet ID from chunk progress
+    const sheetId = chunkProgress.sheetId;
+    if (!sheetId) {
+      throw new Error('Sheet ID not found in chunk progress');
+    }
+
+    // Calculate base order index for this chunk
+    // Each chunk should have entries after the previous chunks
+    const baseOrderIndex = chunkIndex * 1000;
+
+    // Insert parsed scenes into database
+    const entriesToInsert = parsedScenes.map((scene, index) => ({
+      sheet_id: sheetId,
+      order_index: baseOrderIndex + index,
+      timecode: scene.timecode,
+      start_timecode: scene.start_timecode,
+      end_timecode: scene.end_timecode,
+      plan_type: scene.plan_type || '',
+      description: scene.description || '',
+      dialogues: scene.dialogues || '',
+    }));
+
+    if (entriesToInsert.length > 0) {
+      const { error: insertError } = await supabase
+        .from('montage_entries')
+        .insert(entriesToInsert);
+
+      if (insertError) {
+        console.error(`Error inserting entries for chunk ${chunkIndex}:`, insertError);
+        throw new Error(`Failed to insert montage entries for chunk ${chunkIndex}`);
+      }
+    }
+
+    // Update chunk status to completed
+    chunkProgress.chunks[chunkIndex].status = 'completed';
+    chunkProgress.completedChunks += 1;
+    
+    await supabase
+      .from('videos')
+      .update({ chunk_progress_json: chunkProgress })
+      .eq('id', videoId);
+
+    console.log(`✅ Chunk ${chunkIndex} completed: ${parsedScenes.length} scenes saved`);
+
+    return NextResponse.json({
+      success: true,
+      chunkIndex,
+      scenesCount: parsedScenes.length,
+      completedChunks: chunkProgress.completedChunks,
+      totalChunks: chunkProgress.totalChunks,
+    });
+
+  } catch (error) {
+    console.error('Error processing chunk:', error);
+    
+    // Try to update chunk status to failed
+    try {
+      const { videoId, chunkIndex } = await request.json();
+      if (videoId && chunkIndex !== undefined) {
+        const supabase = createServiceRoleClient();
+        const { data: video } = await supabase
+          .from('videos')
+          .select('chunk_progress_json')
+          .eq('id', videoId)
+          .single();
+        
+        if (video?.chunk_progress_json) {
+          const chunkProgress = video.chunk_progress_json;
+          chunkProgress.chunks[chunkIndex].status = 'failed';
+          await supabase
+            .from('videos')
+            .update({ chunk_progress_json: chunkProgress })
+            .eq('id', videoId);
+        }
+      }
+    } catch (updateError) {
+      console.error('Error updating chunk status to failed:', updateError);
+    }
+
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Unknown error' },
+      { status: 500 }
+    );
+  }
+}
+

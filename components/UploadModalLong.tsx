@@ -154,31 +154,30 @@ export default function UploadModalLong({
             // Закрываем модалку сразу, чтобы видеть прогресс
             onUploadComplete();
 
-            // Запускаем обработку в фоне (не ждем)
+            // Запускаем обработку в фоне используя новый 3-шаговый workflow
             console.log('🔗 Fetching signed URL...');
-            fetch(`/api/videos/${videoId}`)
-              .then(res => res.json())
-              .then(videoData => {
-                console.log('✅ Got video data:', videoData);
-                if (videoData.signedUrl) {
-                  console.log('🚀 Starting chunked processing...');
-                  // Trigger chunked processing
-                  return fetch('/api/process-video-chunked', {
-                    method: 'POST',
-                    headers: {
-                      'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                      videoId: videoId,
-                      videoUrl: videoData.signedUrl,
-                      videoDuration: videoDuration,
-                    }),
-                  });
-                }
-              })
-              .catch(err => {
-                console.error('Processing trigger error:', err);
-              });
+            import('@/lib/chunked-processing-client').then(({ startChunkedProcessing }) => {
+              fetch(`/api/videos/${videoId}`)
+                .then(res => res.json())
+                .then(videoData => {
+                  console.log('✅ Got video data:', videoData);
+                  if (videoData.signedUrl) {
+                    console.log('🚀 Starting chunked processing...');
+                    return startChunkedProcessing(
+                      videoId,
+                      videoData.signedUrl,
+                      videoDuration,
+                      undefined,
+                      (progress) => {
+                        console.log('Processing progress:', progress);
+                      }
+                    );
+                  }
+                })
+                .catch(err => {
+                  console.error('Processing trigger error:', err);
+                });
+            });
           } catch (err) {
             console.error('Upload response error:', err);
             setError('Ошибка при обработке ответа');
