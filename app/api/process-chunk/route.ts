@@ -4,7 +4,7 @@ import type { NextRequest } from 'next/server';
 import Replicate from 'replicate';
 import { parseGeminiResponse, parseAlternativeFormat } from '@/lib/parseGeminiResponse';
 import { createChunkPrompt } from '@/lib/gemini-prompt';
-import { timecodeToSeconds } from '@/lib/video-chunking';
+import { timecodeToSeconds, secondsToTimecode } from '@/lib/video-chunking';
 import { createPredictionWithRetry, pollPrediction } from '@/lib/replicate-helper';
 
 const replicate = new Replicate({
@@ -108,6 +108,27 @@ export async function POST(request: NextRequest) {
     }
 
     console.log(`📊 Parsed ${parsedScenes.length} scenes from chunk ${chunkIndex}`);
+
+    // Adjust timecodes: AI returns timecodes relative to chunk (starting from 00:00:00)
+    // We need to add chunk's startTime offset
+    const chunkStartSeconds = timecodeToSeconds(startTimecode);
+    
+    if (chunkStartSeconds > 0) {
+      console.log(`⏰ Adjusting timecodes for chunk ${chunkIndex} (offset: ${chunkStartSeconds}s)`);
+      
+      parsedScenes = parsedScenes.map(scene => {
+        const adjustedStartSeconds = timecodeToSeconds(scene.start_timecode) + chunkStartSeconds;
+        const adjustedEndSeconds = timecodeToSeconds(scene.end_timecode) + chunkStartSeconds;
+        
+        return {
+          ...scene,
+          start_timecode: secondsToTimecode(adjustedStartSeconds),
+          end_timecode: secondsToTimecode(adjustedEndSeconds),
+        };
+      });
+      
+      console.log(`✅ Adjusted ${parsedScenes.length} scenes' timecodes`);
+    }
 
     // Get sheet ID from chunk progress
     const sheetId = chunkProgress.sheetId;
