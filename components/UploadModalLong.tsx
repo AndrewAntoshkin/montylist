@@ -154,36 +154,24 @@ export default function UploadModalLong({
             // Закрываем модалку сразу, чтобы видеть прогресс
             onUploadComplete();
 
-            // Запускаем обработку в фоне используя новый 3-шаговый workflow
-            console.log('🔗 Fetching signed URL...');
-            import('@/lib/chunked-processing-client').then(({ startChunkedProcessing }) => {
-              fetch(`/api/videos/${videoId}`)
-                .then(res => res.json())
-                .then(async (videoData) => {
-                  console.log('✅ Got video data:', videoData);
-                  if (videoData.signedUrl) {
-                    console.log('🚀 Starting chunked processing...');
-                    const result = await startChunkedProcessing(
-                      videoId,
-                      videoData.signedUrl,
-                      videoDuration,
-                      undefined,
-                      (progress) => {
-                        console.log('Processing progress:', progress);
-                      }
-                    );
-                    
-                    if (result.success) {
-                      console.log('🎉 Processing completed successfully!');
-                    } else {
-                      console.error('❌ Processing failed:', result.error);
-                    }
-                  }
-                })
-                .catch(err => {
-                  console.error('Processing trigger error:', err);
-                });
-            });
+            // Запускаем обработку в фоне на сервере (не зависит от браузера)
+            console.log('🚀 Starting server-side chunk processing...');
+            fetch('/api/process-all-chunks', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ videoId }),
+            })
+              .then(res => res.json())
+              .then(data => {
+                if (data.success) {
+                  console.log('✅ Background processing started on server');
+                } else {
+                  console.error('❌ Failed to start processing:', data.error);
+                }
+              })
+              .catch(err => {
+                console.error('Processing trigger error:', err);
+              });
           } catch (err) {
             console.error('Upload response error:', err);
             setError('Ошибка при обработке ответа');
