@@ -107,11 +107,19 @@ export function createChunkPrompt(
   endTimecode: string,
   totalChunks: number
 ): string {
+  // Calculate chunk duration
+  const parts = endTimecode.split(':');
+  const endMinutes = parseInt(parts[0]) * 60 + parseInt(parts[1]);
+  
   if (totalChunks > 1) {
     return `${MONTAGE_ANALYSIS_PROMPT}
 
-⚠️ Это часть ${chunkIndex + 1} из ${totalChunks} всего фильма. 
-Анализируй видео начиная с таймкода 00:00:00:00.`;
+⚠️ КРИТИЧЕСКИ ВАЖНО:
+- Это часть ${chunkIndex + 1} из ${totalChunks} фильма
+- Начинай таймкоды с 00:00:00:00
+- ЗАКАНЧИВАЙ анализ на таймкоде около 00:${Math.floor(endMinutes/60).toString().padStart(2,'0')}:${(endMinutes%60).toString().padStart(2,'0')}:00
+- НЕ ПРИДУМЫВАЙ сцены после окончания видео!
+- Анализируй ТОЛЬКО то что видишь в этом фрагменте`;
   }
   
   return MONTAGE_ANALYSIS_PROMPT;

@@ -116,6 +116,7 @@ export async function POST(request: NextRequest) {
     // Adjust timecodes: AI returns timecodes relative to chunk (starting from 00:00:00)
     // We need to add chunk's startTime offset
     const chunkStartSeconds = timecodeToSeconds(startTimecode);
+    const chunkEndSeconds = timecodeToSeconds(endTimecode);
     
     if (chunkStartSeconds > 0) {
       console.log(`⏰ Adjusting timecodes for chunk ${chunkIndex} (offset: ${chunkStartSeconds}s)`);
@@ -132,6 +133,17 @@ export async function POST(request: NextRequest) {
       });
       
       console.log(`✅ Adjusted ${parsedScenes.length} scenes' timecodes`);
+    }
+    
+    // Filter out scenes that go beyond chunk end (AI hallucinations)
+    const validScenes = parsedScenes.filter(scene => {
+      const sceneStartSeconds = timecodeToSeconds(scene.start_timecode);
+      return sceneStartSeconds < chunkEndSeconds;
+    });
+    
+    if (validScenes.length < parsedScenes.length) {
+      console.log(`⚠️  Filtered out ${parsedScenes.length - validScenes.length} hallucinated scenes beyond chunk end`);
+      parsedScenes = validScenes;
     }
 
     // Get sheet ID from chunk progress
