@@ -1,3 +1,4 @@
+import { createServiceRoleClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
@@ -52,14 +53,21 @@ async function processAllChunksInBackground(videoId: string, baseUrl: string) {
   try {
     console.log(`📦 Starting background processing for video ${videoId}`);
 
+    // Use Service Role to access database directly (no auth needed)
+    const supabase = createServiceRoleClient();
+
     // Fetch video data to get chunk progress
-    const videoResponse = await fetch(`${baseUrl}/api/videos/${videoId}`);
-    if (!videoResponse.ok) {
-      throw new Error('Failed to fetch video data');
+    const { data: video, error: videoError } = await supabase
+      .from('videos')
+      .select('chunk_progress_json')
+      .eq('id', videoId)
+      .single();
+
+    if (videoError || !video) {
+      throw new Error(`Failed to fetch video data: ${videoError?.message}`);
     }
 
-    const videoData = await videoResponse.json();
-    const chunkProgress = videoData.chunk_progress_json;
+    const chunkProgress = video.chunk_progress_json;
 
     if (!chunkProgress || !chunkProgress.chunks) {
       throw new Error('No chunk progress found');
