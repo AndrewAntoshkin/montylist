@@ -159,11 +159,11 @@ export default function UploadModalLong({
             import('@/lib/chunked-processing-client').then(({ startChunkedProcessing }) => {
               fetch(`/api/videos/${videoId}`)
                 .then(res => res.json())
-                .then(videoData => {
+                .then(async (videoData) => {
                   console.log('✅ Got video data:', videoData);
                   if (videoData.signedUrl) {
                     console.log('🚀 Starting chunked processing...');
-                    return startChunkedProcessing(
+                    const result = await startChunkedProcessing(
                       videoId,
                       videoData.signedUrl,
                       videoDuration,
@@ -172,6 +172,12 @@ export default function UploadModalLong({
                         console.log('Processing progress:', progress);
                       }
                     );
+                    
+                    if (result.success) {
+                      console.log('🎉 Processing completed successfully!');
+                    } else {
+                      console.error('❌ Processing failed:', result.error);
+                    }
                   }
                 })
                 .catch(err => {

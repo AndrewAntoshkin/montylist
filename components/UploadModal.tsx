@@ -157,9 +157,9 @@ export default function UploadModal({
               import('@/lib/chunked-processing-client').then(({ startChunkedProcessing }) => {
                 fetch(`/api/videos/${videoId}`)
                   .then(res => res.json())
-                  .then(videoData => {
+                  .then(async (videoData) => {
                     if (videoData.signedUrl) {
-                      return startChunkedProcessing(
+                      const result = await startChunkedProcessing(
                         videoId,
                         videoData.signedUrl,
                         videoDuration,
@@ -168,6 +168,12 @@ export default function UploadModal({
                           console.log('Processing progress:', progress);
                         }
                       );
+                      
+                      if (result.success) {
+                        console.log('🎉 Processing completed successfully!');
+                      } else {
+                        console.error('❌ Processing failed:', result.error);
+                      }
                     }
                   })
                   .catch(err => console.error('Processing trigger error:', err));
