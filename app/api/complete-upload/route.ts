@@ -52,7 +52,8 @@ export async function POST(request: NextRequest) {
         file_size: fileSize,
         duration: duration ? parseInt(duration) : null,
         status: 'uploading',
-        film_metadata: filmMetadata,
+        // Note: film_metadata column doesn't exist in current schema
+        // TODO: Add migration if metadata storage is needed
       })
       .select()
       .single();
