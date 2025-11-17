@@ -77,9 +77,8 @@ export async function POST(request: NextRequest) {
       replicate,
       'google/gemini-2.5-flash',
       {
-        video: chunkStorageUrl,
+        videos: [chunkStorageUrl],  // Must be array for gemini-2.5-flash
         prompt: prompt,
-        max_tokens: 8096,
       }
     );
 
