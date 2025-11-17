@@ -121,13 +121,20 @@ export async function POST(request: NextRequest) {
     }
 
     // Update video status to completed
-    await supabase
+    const { error: updateError } = await supabase
       .from('videos')
       .update({ 
         status: 'completed',
         processed_at: new Date().toISOString()
       })
       .eq('id', videoId);
+
+    if (updateError) {
+      console.error('❌ Error updating video status:', updateError);
+      throw new Error(`Failed to update video status: ${updateError.message}`);
+    }
+
+    console.log(`✅ Video status updated to completed`);
 
     // Get final count
     const { count: finalCount } = await supabase
