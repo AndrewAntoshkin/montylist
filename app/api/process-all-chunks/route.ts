@@ -122,7 +122,7 @@ async function processAllChunksInBackground(videoId: string, baseUrl: string) {
           }),
           // Replicate processing может занимать 5+ минут, поэтому снимаем таймауты
           dispatcher: longRequestAgent,
-        });
+        } as any);
 
         if (!chunkResponse.ok) {
           const error = await chunkResponse.json();
