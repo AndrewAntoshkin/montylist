@@ -122,8 +122,8 @@ export async function POST(request: NextRequest) {
     // Insert parsed scenes into database
     const entriesToInsert = parsedScenes.map((scene, index) => ({
       sheet_id: sheetId,
+      plan_number: baseOrderIndex + index + 1, // plan_number starts from 1
       order_index: baseOrderIndex + index,
-      timecode: scene.timecode,
       start_timecode: scene.start_timecode,
       end_timecode: scene.end_timecode,
       plan_type: scene.plan_type || '',
