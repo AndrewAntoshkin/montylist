@@ -125,43 +125,7 @@ export default function VideoCard({ video }: VideoCardProps) {
           {video.original_filename || 'Название фильма'}
         </h3>
         
-        {/* Chunk Progress - показываем если есть */}
-        {video.chunk_progress && video.chunk_progress.totalChunks > 0 && (
-          <div className="flex flex-col gap-3 w-full">
-            {video.chunk_progress.chunks.map((chunk) => (
-              <div key={chunk.index} className="flex gap-3 items-center">
-                <div className="relative shrink-0 w-[18px] h-[18px]">
-                  {chunk.status === 'completed' ? (
-                    <Image
-                      src="/icons/check-circle.svg"
-                      alt="Completed"
-                      width={18}
-                      height={18}
-                      className="w-full h-full"
-                    />
-                  ) : chunk.status === 'processing' ? (
-                    <Image
-                      src="/icons/spinner.svg"
-                      alt="Processing"
-                      width={18}
-                      height={18}
-                      className="w-full h-full animate-spin"
-                    />
-                  ) : (
-                    <div className="w-full h-full rounded-full border-2 border-[#3e3e3e]" />
-                  )}
-                </div>
-                <p className={`text-xs font-normal leading-5 ${
-                  chunk.status === 'completed' ? 'text-white' : 
-                  chunk.status === 'processing' ? 'text-[#9f9f9f]' : 
-                  'text-[#5e5e5e]'
-                }`}>
-                  Часть {chunk.index + 1}{chunk.status === 'processing' ? '...' : ''}
-                </p>
-              </div>
-            ))}
-          </div>
-        )}
+        {/* Chunk Progress - скрыт из UI (функции работают в фоне) */}
         
         <p className="text-[#7e7e7e] text-xs font-normal leading-5 w-full">
           {formatDate(video.created_at)}

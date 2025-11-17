@@ -1,6 +1,12 @@
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { Agent } from 'undici';
+
+const longRequestAgent = new Agent({
+  headersTimeout: 0,
+  bodyTimeout: 0,
+});
 
 // Very short timeout - this endpoint just triggers background processing
 export const maxDuration = 60;
@@ -47,7 +53,7 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * Background function that processes all chunks sequentially
+ * Background function that processes all chunks in parallel batches
  */
 async function processAllChunksInBackground(videoId: string, baseUrl: string) {
   try {
@@ -76,49 +82,67 @@ async function processAllChunksInBackground(videoId: string, baseUrl: string) {
     const chunks = chunkProgress.chunks;
     console.log(`📊 Found ${chunks.length} chunks to process`);
 
-    // Process each chunk sequentially
-    for (let i = 0; i < chunks.length; i++) {
-      const chunk = chunks[i];
-
-      if (chunk.status === 'completed') {
-        console.log(`⏭️  Chunk ${i} already completed, skipping`);
-        continue;
-      }
-
-      console.log(`🎬 Processing chunk ${i + 1}/${chunks.length}...`);
-      console.log(`📦 Chunk data:`, {
-        index: chunk.index,
-        storageUrl: chunk.storageUrl,
-        startTimecode: chunk.startTimecode,
-        endTimecode: chunk.endTimecode,
-      });
-
-      // Validate chunk data
-      if (!chunk.storageUrl) {
-        throw new Error(`Chunk ${i} has no storage URL. Init may have failed.`);
-      }
-
-      const chunkResponse = await fetch(`${baseUrl}/api/process-chunk`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          videoId,
-          chunkIndex: chunk.index,
-          chunkStorageUrl: chunk.storageUrl,
-          startTimecode: chunk.startTimecode,
-          endTimecode: chunk.endTimecode,
-        }),
-      });
-
-      if (!chunkResponse.ok) {
-        const error = await chunkResponse.json();
-        console.error(`❌ Chunk ${i} failed:`, error);
-        throw new Error(`Failed to process chunk ${i}: ${error.error}`);
-      }
-
-      const chunkData = await chunkResponse.json();
-      console.log(`✅ Chunk ${i + 1}/${chunks.length} completed: ${chunkData.scenesCount} scenes`);
+    // Filter out already completed chunks
+    const pendingChunks = chunks.filter((chunk: any) => chunk.status !== 'completed');
+    
+    if (pendingChunks.length === 0) {
+      console.log(`✅ All chunks already completed`);
+      return;
     }
+
+    console.log(`🚀 Processing ${pendingChunks.length} chunks sequentially (one by one for stability)...`);
+
+    // Process each chunk SEQUENTIALLY (not in parallel)
+    // This is slower but more stable and works better with Gemini
+    let successCount = 0;
+    let failCount = 0;
+
+    for (let i = 0; i < pendingChunks.length; i++) {
+      const chunk = pendingChunks[i];
+      
+      console.log(`\n📦 Processing chunk ${i + 1}/${pendingChunks.length} (chunk index: ${chunk.index})`);
+
+      try {
+        // Validate chunk data
+        if (!chunk.storageUrl) {
+          throw new Error(`Chunk ${chunk.index} has no storage URL. Init may have failed.`);
+        }
+
+        console.log(`🎬 Starting chunk ${chunk.index} for video ${videoId}...`);
+
+        const chunkResponse = await fetch(`${baseUrl}/api/process-chunk`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            videoId,
+            chunkIndex: chunk.index,
+            chunkStorageUrl: chunk.storageUrl,
+            startTimecode: chunk.startTimecode,
+            endTimecode: chunk.endTimecode,
+          }),
+          // Replicate processing может занимать 5+ минут, поэтому снимаем таймауты
+          dispatcher: longRequestAgent,
+        });
+
+        if (!chunkResponse.ok) {
+          const error = await chunkResponse.json();
+          throw new Error(`Failed to process chunk ${chunk.index}: ${error.error}`);
+        }
+
+        const chunkData = await chunkResponse.json();
+        console.log(`✅ Chunk ${chunk.index} completed: ${chunkData.scenesCount} scenes`);
+        successCount++;
+        
+      } catch (error) {
+        console.error(`❌ Chunk ${chunk.index} failed:`, error);
+        failCount++;
+        
+        // Continue processing other chunks even if one fails
+        console.log(`⚠️  Continuing to next chunk despite error...`);
+      }
+    }
+
+    console.log(`\n📊 Sequential processing completed: ${successCount} successful, ${failCount} failed`);
 
     console.log(`🎉 All chunks processed for video ${videoId}, starting finalization...`);
 

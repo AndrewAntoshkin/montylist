@@ -116,6 +116,7 @@ export async function POST(request: NextRequest) {
         .upload(chunkStoragePath, chunkBuffer, {
           contentType: 'video/mp4',
           upsert: false,
+          cacheControl: '3600',
         });
 
       if (uploadError) {
@@ -123,13 +124,41 @@ export async function POST(request: NextRequest) {
         throw new Error(`Failed to upload chunk ${chunkFile.chunkIndex}`);
       }
 
-      // Get public URL
-      const { data: urlData } = supabase.storage
+      // Try public URL first (if bucket is public), fallback to signed URL
+      let storageUrl: string;
+      
+      // First, try to get public URL
+      const { data: publicUrlData } = supabase.storage
         .from('videos')
         .getPublicUrl(chunkStoragePath);
+      
+      // Test if public URL works (bucket might be private)
+      try {
+        const testResponse = await fetch(publicUrlData.publicUrl, { method: 'HEAD' });
+        if (testResponse.ok) {
+          // Public URL works!
+          storageUrl = publicUrlData.publicUrl;
+          console.log(`✅ Using public URL for chunk ${chunkFile.chunkIndex}`);
+        } else {
+          throw new Error('Public URL not accessible');
+        }
+      } catch {
+        // Public URL doesn't work, use signed URL
+        const { data: signedUrlData, error: urlError } = await supabase.storage
+          .from('videos')
+          .createSignedUrl(chunkStoragePath, 60 * 60 * 24 * 7); // 7 days
+
+        if (urlError || !signedUrlData) {
+          console.error(`Error creating signed URL for chunk ${chunkFile.chunkIndex}:`, urlError);
+          throw new Error(`Failed to create signed URL for chunk ${chunkFile.chunkIndex}`);
+        }
+        
+        storageUrl = signedUrlData.signedUrl;
+        console.log(`✅ Using signed URL for chunk ${chunkFile.chunkIndex}`);
+      }
 
       // Update chunk progress with storage URL
-      chunkProgress.chunks[chunkFile.chunkIndex].storageUrl = urlData.publicUrl;
+      chunkProgress.chunks[chunkFile.chunkIndex].storageUrl = storageUrl;
       
       console.log(`✅ Chunk ${chunkFile.chunkIndex + 1}/${chunkFiles.length} uploaded`);
     }

@@ -1,15 +1,13 @@
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import Replicate from 'replicate';
 import { parseGeminiResponse, parseAlternativeFormat } from '@/lib/parseGeminiResponse';
 import { createChunkPrompt } from '@/lib/gemini-prompt';
 import { timecodeToSeconds, secondsToTimecode } from '@/lib/video-chunking';
 import { createPredictionWithRetry, pollPrediction } from '@/lib/replicate-helper';
+import { getReplicatePool } from '@/lib/replicate-pool';
 
-const replicate = new Replicate({
-  auth: process.env.REPLICATE_API_TOKEN!,
-});
+const MAX_PREDICTION_ATTEMPTS = 5; // Увеличено с 3 до 5 для лучшей надежности
 
 // 5 minutes timeout per chunk
 export const maxDuration = 300;
@@ -71,22 +69,58 @@ export async function POST(request: NextRequest) {
     const prompt = createChunkPrompt(chunkIndex, startTimecode, endTimecode, totalChunks);
     console.log(`📝 Generated prompt for chunk ${chunkIndex}`);
 
-    // Start Replicate prediction
-    console.log(`🚀 Starting Replicate prediction for chunk ${chunkIndex}...`);
-    const prediction = await createPredictionWithRetry(
-      replicate,
-      'google/gemini-2.5-flash',
-      {
-        videos: [chunkStorageUrl],  // Must be array for gemini-2.5-flash
-        prompt: prompt,
+    // Get Replicate client from pool with least load (with rate limiting)
+    const pool = getReplicatePool();
+    const { client: replicate, keyIndex, release } = await pool.getLeastLoadedClient();
+
+    // Start Replicate prediction with retries for transient errors (E6716)
+    let completedPrediction: Awaited<ReturnType<typeof pollPrediction>> | null = null;
+
+    try {
+      for (let attempt = 1; attempt <= MAX_PREDICTION_ATTEMPTS; attempt++) {
+        try {
+          console.log(`🚀 Starting Replicate prediction for chunk ${chunkIndex} using key #${keyIndex} (attempt ${attempt}/${MAX_PREDICTION_ATTEMPTS})...`);
+          const prediction = await createPredictionWithRetry(
+            replicate,
+            'google/gemini-2.5-flash',
+            {
+              videos: [chunkStorageUrl], // Must be array for gemini-2.5-flash
+              prompt,
+            }
+          );
+
+          console.log(`⏳ Polling prediction ${prediction.id} for chunk ${chunkIndex}...`);
+          completedPrediction = await pollPrediction(replicate, prediction.id);
+
+          if (completedPrediction.status === 'failed') {
+            throw new Error(`Replicate prediction failed: ${completedPrediction.error}`);
+          }
+
+          // Success, exit retry loop
+          break;
+        } catch (predictionError) {
+          const message = predictionError instanceof Error ? predictionError.message : String(predictionError);
+          const isE6716 = message.includes('E6716') || message.toLowerCase().includes('timeout starting prediction');
+
+          if (isE6716 && attempt < MAX_PREDICTION_ATTEMPTS) {
+            // Exponential backoff для E6716: 5s, 20s, 45s, 80s
+            const exponentialBackoff = Math.pow(attempt, 2) * 5000;
+            const backoffMs = Math.min(exponentialBackoff, 90000); // Max 90s
+            console.warn(`⚠️  Chunk ${chunkIndex} E6716 on attempt ${attempt}. Retrying in ${backoffMs}ms (exponential backoff)...`);
+            await new Promise(resolve => setTimeout(resolve, backoffMs));
+            continue;
+          }
+
+          throw predictionError;
+        }
       }
-    );
+    } finally {
+      // Always release the client back to the pool
+      release();
+    }
 
-    console.log(`⏳ Polling prediction ${prediction.id} for chunk ${chunkIndex}...`);
-    const completedPrediction = await pollPrediction(replicate, prediction.id);
-
-    if (completedPrediction.status === 'failed') {
-      throw new Error(`Replicate prediction failed: ${completedPrediction.error}`);
+    if (!completedPrediction) {
+      throw new Error('Replicate prediction did not complete after retries');
     }
 
     const output = completedPrediction.output;
@@ -151,15 +185,27 @@ export async function POST(request: NextRequest) {
       throw new Error('Sheet ID not found in chunk progress');
     }
 
-    // Calculate base order index for this chunk
-    // Each chunk should have entries after the previous chunks
-    const baseOrderIndex = chunkIndex * 1000;
+    // Determine the last assigned plan/order numbers to keep numbering continuous
+    const { data: lastEntry, error: lastEntryError } = await supabase
+      .from('montage_entries')
+      .select('plan_number, order_index')
+      .eq('sheet_id', sheetId)
+      .order('plan_number', { ascending: false })
+      .limit(1);
+    
+    if (lastEntryError) {
+      console.error('Error fetching last plan number:', lastEntryError);
+      throw new Error('Failed to fetch last plan number');
+    }
+    
+    const lastPlanNumber = lastEntry?.[0]?.plan_number ?? 0;
+    const lastOrderIndex = lastEntry?.[0]?.order_index ?? -1;
 
     // Insert parsed scenes into database
     const entriesToInsert = parsedScenes.map((scene, index) => ({
       sheet_id: sheetId,
-      plan_number: baseOrderIndex + index + 1, // plan_number starts from 1
-      order_index: baseOrderIndex + index,
+      plan_number: lastPlanNumber + index + 1,
+      order_index: lastOrderIndex + index + 1,
       start_timecode: scene.start_timecode,
       end_timecode: scene.end_timecode,
       plan_type: scene.plan_type || '',

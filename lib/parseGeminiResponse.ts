@@ -2,9 +2,33 @@ import type { ParsedScene } from '@/types';
 
 /**
  * Parses Gemini's text response into structured montage entries
+ * Supports both Markdown and JSON formats
  */
 export function parseGeminiResponse(text: string): ParsedScene[] {
   const scenes: ParsedScene[] = [];
+  
+  // Try JSON format first (Gemini sometimes returns JSON instead of Markdown)
+  if (text.includes('```json')) {
+    console.log('🔍 Detected JSON format in response, trying JSON parser...');
+    try {
+      const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/);
+      if (jsonMatch) {
+        const jsonData = JSON.parse(jsonMatch[1]);
+        if (Array.isArray(jsonData)) {
+          console.log(`✅ Successfully parsed ${jsonData.length} scenes from JSON format`);
+          return jsonData.map((scene: any) => ({
+            start_timecode: convertJsonTimecode(scene.start),
+            end_timecode: convertJsonTimecode(scene.end),
+            plan_type: scene.plan_type || '',
+            description: (scene.visual_description || scene.content_summary || '').trim(),
+            dialogues: (scene.dialogue || '').trim(),
+          }));
+        }
+      }
+    } catch (e) {
+      console.warn('⚠️ Failed to parse JSON format, falling back to markdown parser:', e);
+    }
+  }
   
   // Split by timecode sections (e.g., **15:20:30:15 - 15:29:45:20** or **15:20 - 15:29**)
   const timecodeRegex = /\*\*(\d{1,2}:\d{2}(?::\d{2})?(?::\d{2})?\s*-\s*\d{1,2}:\d{2}(?::\d{2})?(?::\d{2})?)\*\*/g;
@@ -201,4 +225,21 @@ export function parseAlternativeFormat(text: string): ParsedScene[] {
   return scenes;
 }
 
-
+/**
+ * Converts JSON timecode format (00:00:00.00) to standard format (00:00:00:00)
+ */
+function convertJsonTimecode(timecode: string): string {
+  if (!timecode) return '00:00:00:00';
+  
+  // Remove milliseconds if present (00:00:00.00 → 00:00:00)
+  const withoutMs = timecode.split('.')[0];
+  
+  // Ensure HH:MM:SS format
+  const parts = withoutMs.split(':');
+  while (parts.length < 3) {
+    parts.unshift('00'); // Add missing hours/minutes
+  }
+  
+  // Add frame placeholder :00
+  return `${parts.join(':')}:00`;
+}

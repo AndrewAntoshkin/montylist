@@ -41,6 +41,8 @@ export async function POST(request: NextRequest) {
 
     console.log(`✅ Completing upload for: ${originalFilename}`);
 
+    console.log('📝 Film metadata:', filmMetadata ? JSON.stringify(filmMetadata) : 'none');
+
     // Create video record in database
     const { data: video, error: videoError } = await supabase
       .from('videos')
@@ -52,8 +54,7 @@ export async function POST(request: NextRequest) {
         file_size: fileSize,
         duration: duration ? parseInt(duration) : null,
         status: 'uploading',
-        // Note: film_metadata column doesn't exist in current schema
-        // TODO: Add migration if metadata storage is needed
+        film_metadata_json: filmMetadata, // Сохраняем метаданные фильма
       })
       .select()
       .single();
