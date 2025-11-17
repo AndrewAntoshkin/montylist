@@ -16,15 +16,18 @@ export const maxDuration = 300;
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
+  // Parse request body at the top level so we can access in catch block
+  let videoId: string | undefined;
+  let chunkIndex: number | undefined;
+  
   try {
-    const { 
-      videoId, 
-      chunkIndex, 
-      chunkStorageUrl, 
-      startTimecode, 
-      endTimecode,
-      filmMetadata 
-    } = await request.json();
+    const body = await request.json();
+    videoId = body.videoId;
+    chunkIndex = body.chunkIndex;
+    const chunkStorageUrl = body.chunkStorageUrl;
+    const startTimecode = body.startTimecode;
+    const endTimecode = body.endTimecode;
+    const filmMetadata = body.filmMetadata;
 
     if (!videoId || chunkIndex === undefined || !chunkStorageUrl) {
       return NextResponse.json(
@@ -72,7 +75,7 @@ export async function POST(request: NextRequest) {
     console.log(`🚀 Starting Replicate prediction for chunk ${chunkIndex}...`);
     const prediction = await createPredictionWithRetry(
       replicate,
-      'lucataco/gemini-2.0-flash-exp:43c5b90da3d51758b2f54ef6a49fd89de22ac12bb6f2f478acffb5a7b0c7e52c',
+      'google/gemini-2.5-flash',
       {
         video: chunkStorageUrl,
         prompt: prompt,
@@ -159,10 +162,9 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Error processing chunk:', error);
     
-    // Try to update chunk status to failed
-    try {
-      const { videoId, chunkIndex } = await request.json();
-      if (videoId && chunkIndex !== undefined) {
+    // Update chunk status to failed using variables from outer scope
+    if (videoId && chunkIndex !== undefined) {
+      try {
         const supabase = createServiceRoleClient();
         const { data: video } = await supabase
           .from('videos')
@@ -172,15 +174,18 @@ export async function POST(request: NextRequest) {
         
         if (video?.chunk_progress_json) {
           const chunkProgress = video.chunk_progress_json;
-          chunkProgress.chunks[chunkIndex].status = 'failed';
-          await supabase
-            .from('videos')
-            .update({ chunk_progress_json: chunkProgress })
-            .eq('id', videoId);
+          if (chunkProgress.chunks[chunkIndex]) {
+            chunkProgress.chunks[chunkIndex].status = 'failed';
+            await supabase
+              .from('videos')
+              .update({ chunk_progress_json: chunkProgress })
+              .eq('id', videoId);
+            console.log(`✅ Updated chunk ${chunkIndex} status to failed`);
+          }
         }
+      } catch (updateError) {
+        console.error('Could not update chunk status to failed:', updateError);
       }
-    } catch (updateError) {
-      console.error('Error updating chunk status to failed:', updateError);
     }
 
     return NextResponse.json(
