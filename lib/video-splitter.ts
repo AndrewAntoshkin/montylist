@@ -77,6 +77,7 @@ export async function splitVideoIntoChunks(
         .outputOptions([
           '-c copy',           // Просто копируем потоки (быстро!)
           '-avoid_negative_ts make_zero', // Избежать проблем с timestamps
+          '-movflags +faststart', // Переместить moov atom в начало для streaming
         ])
         .on('start', (commandLine) => {
           console.log(`FFmpeg command: ${commandLine}`);
