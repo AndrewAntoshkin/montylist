@@ -114,104 +114,129 @@ export default function UploadModal({
     setError('');
 
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('userId', userId);
-      
-      // Add duration if available
-      if (videoDuration) {
-        formData.append('duration', videoDuration.toString());
-        
-        // Skip auto-process for long videos (will use chunked endpoint)
-        if (videoDuration > 1200) {
-          formData.append('skipAutoProcess', 'true');
-        }
-      }
-      
-      // Add film metadata if available
-      if (filmMetadata) {
-        formData.append('filmMetadata', JSON.stringify(filmMetadata));
-      }
-
-      const xhr = new XMLHttpRequest();
-
-      xhr.upload.addEventListener('progress', (e) => {
-        if (e.lengthComputable) {
-          const percentComplete = Math.round((e.loaded / e.total) * 100);
-          setProgress(percentComplete);
-        }
+      // Step 1: Get signed upload URL
+      console.log('📝 Requesting upload URL...');
+      const urlResponse = await fetch('/api/create-upload-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filename: file.name,
+          fileType: file.type,
+          fileSize: file.size,
+        }),
       });
 
-      xhr.addEventListener('load', async () => {
-        if (xhr.status === 200) {
-          try {
-            const response = JSON.parse(xhr.responseText);
-            const videoId = response.video?.id;
-            
-            // If video is long and we skipped auto-process, trigger chunked processing
-            if (videoId && videoDuration && videoDuration > 1200) {
-              // Close modal first
-              onUploadComplete();
-              
-              // Two-step processing: init chunks, then process them
-              fetch(`/api/videos/${videoId}`)
-                .then(res => res.json())
-                .then(async (videoData) => {
-                  if (videoData.signedUrl) {
-                    // Step 1: Initialize and split video into chunks
-                    const initResponse = await fetch('/api/init-chunked-processing', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({
-                        videoId,
-                        videoUrl: videoData.signedUrl,
-                        videoDuration,
-                      }),
-                    });
-                    
-                    if (!initResponse.ok) {
-                      throw new Error('Failed to initialize chunks');
-                    }
-                    
-                    // Step 2: Start server-side processing
-                    const processResponse = await fetch('/api/process-all-chunks', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ videoId }),
-                    });
-                    
-                    if (!processResponse.ok) {
-                      throw new Error('Failed to start processing');
-                    }
-                    
-                    console.log('✅ Background processing started');
-                  }
-                })
-                .catch(err => console.error('Processing trigger error:', err));
-            } else {
-              // Normal short video - just close modal
-              setTimeout(() => {
-                onUploadComplete();
-              }, 500);
-            }
-          } catch (err) {
-            console.error('Upload response error:', err);
-            setError('Ошибка при обработке ответа');
-            setUploading(false);
+      if (!urlResponse.ok) {
+        throw new Error('Failed to create upload URL');
+      }
+
+      const { uploadUrl, storagePath } = await urlResponse.json();
+      console.log('✅ Got upload URL');
+
+      // Step 2: Upload directly to Supabase Storage
+      console.log('📤 Uploading file directly to storage...');
+      
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+
+        xhr.upload.addEventListener('progress', (e) => {
+          if (e.lengthComputable) {
+            const percentComplete = Math.round((e.loaded / e.total) * 100);
+            setProgress(percentComplete);
           }
-        } else {
-          setError('Ошибка при загрузке файла');
-          setUploading(false);
-        }
+        });
+
+        xhr.addEventListener('load', () => {
+          if (xhr.status === 200) {
+            console.log('✅ File uploaded to storage');
+            resolve();
+          } else {
+            reject(new Error(`Upload failed: ${xhr.status}`));
+          }
+        });
+
+        xhr.addEventListener('error', () => {
+          reject(new Error('Upload error'));
+        });
+
+        xhr.open('PUT', uploadUrl);
+        xhr.setRequestHeader('Content-Type', file.type);
+        xhr.send(file);
       });
 
-      xhr.addEventListener('error', () => {
-        setError('Ошибка при загрузке файла');
-        setUploading(false);
+      // Step 3: Complete upload by creating video record
+      console.log('📝 Creating video record...');
+      const completeResponse = await fetch('/api/complete-upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          storagePath,
+          originalFilename: file.name,
+          fileSize: file.size,
+          duration: videoDuration?.toString(),
+          skipAutoProcess: videoDuration && videoDuration > 1200 ? 'true' : 'false',
+          filmMetadata,
+        }),
       });
 
-      xhr.open('POST', '/api/upload');
-      xhr.send(formData);
+      if (!completeResponse.ok) {
+        throw new Error('Failed to complete upload');
+      }
+
+      const response = await completeResponse.json();
+      console.log('✅ Video record created:', response);
+      const videoId = response.video?.id;
+      
+      if (!videoId) {
+        throw new Error('No video ID returned');
+      }
+      
+      // If video is long and we skipped auto-process, trigger chunked processing
+      if (videoDuration && videoDuration > 1200) {
+        // Close modal first
+        onUploadComplete();
+        
+        // Two-step processing: init chunks, then process them
+        fetch(`/api/videos/${videoId}`)
+          .then(res => res.json())
+          .then(async (videoData) => {
+            if (videoData.signedUrl) {
+              // Step 1: Initialize and split video into chunks
+              const initResponse = await fetch('/api/init-chunked-processing', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  videoId,
+                  videoUrl: videoData.signedUrl,
+                  videoDuration,
+                }),
+              });
+              
+              if (!initResponse.ok) {
+                throw new Error('Failed to initialize chunks');
+              }
+              
+              // Step 2: Start server-side processing
+              const processResponse = await fetch('/api/process-all-chunks', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ videoId }),
+              });
+              
+              if (!processResponse.ok) {
+                throw new Error('Failed to start processing');
+              }
+              
+              console.log('✅ Background processing started');
+            }
+          })
+          .catch(err => console.error('Processing trigger error:', err));
+      } else {
+        // Normal short video - just close modal
+        setTimeout(() => {
+          onUploadComplete();
+        }, 500);
+      }
     } catch (err) {
       setError('Произошла ошибка при загрузке');
       setUploading(false);
