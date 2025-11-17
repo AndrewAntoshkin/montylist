@@ -112,111 +112,136 @@ export default function UploadModalLong({
     setError('');
 
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('userId', userId);
-      formData.append('duration', videoDuration.toString());
-      formData.append('skipAutoProcess', 'true'); // Отключаем автоматический процесс
-      
-      // Add film metadata if available
-      if (filmMetadata) {
-        formData.append('filmMetadata', JSON.stringify(filmMetadata));
+      // Step 1: Get signed upload URL from our API
+      console.log('📝 Requesting upload URL...');
+      const urlResponse = await fetch('/api/create-upload-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filename: file.name,
+          fileType: file.type,
+          fileSize: file.size,
+        }),
+      });
+
+      if (!urlResponse.ok) {
+        throw new Error('Failed to create upload URL');
       }
 
-      console.log('📤 Sending upload request...');
+      const { uploadUrl, storagePath, token } = await urlResponse.json();
+      console.log('✅ Got upload URL');
 
-      const xhr = new XMLHttpRequest();
+      // Step 2: Upload file directly to Supabase Storage using XHR for progress
+      console.log('📤 Uploading file directly to storage...');
+      
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
 
-      xhr.upload.addEventListener('progress', (e) => {
-        if (e.lengthComputable) {
-          const percentComplete = Math.round((e.loaded / e.total) * 100);
-          setProgress(percentComplete);
-        }
-      });
-
-      xhr.addEventListener('load', async () => {
-        console.log('📥 Upload response received. Status:', xhr.status);
-        
-        if (xhr.status === 200) {
-          try {
-            const response = JSON.parse(xhr.responseText);
-            console.log('✅ Upload response:', response);
-            const videoId = response.video?.id;
-            
-            if (!videoId) {
-              console.error('❌ No video ID in response');
-              throw new Error('No video ID returned');
-            }
-
-            console.log('📹 Video ID:', videoId);
-            console.log('🔄 Closing modal and starting chunked processing...');
-
-            // Закрываем модалку сразу, чтобы видеть прогресс
-            onUploadComplete();
-
-            // Запускаем обработку: сначала init (разрезка), потом process (AI обработка)
-            console.log('🔗 Fetching signed URL...');
-            fetch(`/api/videos/${videoId}`)
-              .then(res => res.json())
-              .then(async (videoData) => {
-                console.log('✅ Got video data:', videoData);
-                if (videoData.signedUrl) {
-                  console.log('🚀 Step 1: Initializing chunks (splitting video)...');
-                  
-                  // Step 1: Initialize and split video into chunks
-                  const initResponse = await fetch('/api/init-chunked-processing', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      videoId,
-                      videoUrl: videoData.signedUrl,
-                      videoDuration,
-                    }),
-                  });
-                  
-                  if (!initResponse.ok) {
-                    throw new Error('Failed to initialize chunks');
-                  }
-                  
-                  const initData = await initResponse.json();
-                  console.log(`✅ Chunks initialized: ${initData.totalChunks} chunks ready`);
-                  
-                  // Step 2: Start server-side processing of all chunks
-                  console.log('🚀 Step 2: Starting background AI processing...');
-                  const processResponse = await fetch('/api/process-all-chunks', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ videoId }),
-                  });
-                  
-                  if (!processResponse.ok) {
-                    throw new Error('Failed to start processing');
-                  }
-                  
-                  console.log('✅ Background processing started on server');
-                }
-              })
-              .catch(err => {
-                console.error('Processing trigger error:', err);
-              });
-          } catch (err) {
-            console.error('Upload response error:', err);
-            setError('Ошибка при обработке ответа');
-            setUploading(false);
+        xhr.upload.addEventListener('progress', (e) => {
+          if (e.lengthComputable) {
+            const percentComplete = Math.round((e.loaded / e.total) * 100);
+            setProgress(percentComplete);
           }
-        } else {
-          setError('Ошибка при загрузке файла');
-          setUploading(false);
-        }
+        });
+
+        xhr.addEventListener('load', () => {
+          if (xhr.status === 200) {
+            console.log('✅ File uploaded to storage');
+            resolve();
+          } else {
+            console.error('❌ Upload failed with status:', xhr.status);
+            reject(new Error(`Upload failed: ${xhr.status}`));
+          }
+        });
+
+        xhr.addEventListener('error', () => {
+          reject(new Error('Upload error'));
+        });
+
+        xhr.open('PUT', uploadUrl);
+        xhr.setRequestHeader('Content-Type', file.type);
+        xhr.send(file);
       });
 
-      xhr.addEventListener('error', () => {
-        setError('Ошибка при загрузке файла');
-        setUploading(false);
+      // Step 3: Complete upload by creating video record
+      console.log('📝 Creating video record...');
+      const completeResponse = await fetch('/api/complete-upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          storagePath,
+          originalFilename: file.name,
+          fileSize: file.size,
+          duration: videoDuration.toString(),
+          skipAutoProcess: 'true',
+          filmMetadata,
+        }),
       });
 
-      xhr.open('POST', '/api/upload');
-      xhr.send(formData);
+      if (!completeResponse.ok) {
+        throw new Error('Failed to complete upload');
+      }
+
+      const response = await completeResponse.json();
+      console.log('✅ Video record created:', response);
+      const videoId = response.video?.id;
+      
+      if (!videoId) {
+        console.error('❌ No video ID in response');
+        throw new Error('No video ID returned');
+      }
+
+      console.log('📹 Video ID:', videoId);
+      console.log('🔄 Closing modal and starting chunked processing...');
+
+      // Закрываем модалку сразу, чтобы видеть прогресс
+      onUploadComplete();
+
+      // Запускаем обработку: сначала init (разрезка), потом process (AI обработка)
+      console.log('🔗 Fetching signed URL...');
+      fetch(`/api/videos/${videoId}`)
+        .then(res => res.json())
+        .then(async (videoData) => {
+          console.log('✅ Got video data:', videoData);
+          if (videoData.signedUrl) {
+            console.log('🚀 Step 1: Initializing chunks (splitting video)...');
+            
+            // Step 1: Initialize and split video into chunks
+            const initResponse = await fetch('/api/init-chunked-processing', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                videoId,
+                videoUrl: videoData.signedUrl,
+                videoDuration,
+              }),
+            });
+            
+            if (!initResponse.ok) {
+              throw new Error('Failed to initialize chunks');
+            }
+            
+            const initData = await initResponse.json();
+            console.log(`✅ Chunks initialized: ${initData.totalChunks} chunks ready`);
+            
+            // Step 2: Start server-side processing of all chunks
+            console.log('🚀 Step 2: Starting background AI processing...');
+            const processResponse = await fetch('/api/process-all-chunks', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ videoId }),
+            });
+            
+            if (!processResponse.ok) {
+              throw new Error('Failed to start processing');
+            }
+            
+            console.log('✅ Background processing started on server');
+          }
+        })
+        .catch(err => {
+          console.error('Processing trigger error:', err);
+        });
     } catch (err) {
       setError('Произошла ошибка при загрузке');
       setUploading(false);
