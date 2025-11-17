@@ -90,8 +90,10 @@ export async function POST(request: NextRequest) {
       throw new Error(`Replicate prediction failed: ${completedPrediction.error}`);
     }
 
-    const aiResponse = completedPrediction.output;
-    console.log(`✅ Chunk ${chunkIndex} AI response received`);
+    const output = completedPrediction.output;
+    // Gemini 2.5 Flash returns output as array of strings, join them
+    const aiResponse = Array.isArray(output) ? output.join('') : String(output);
+    console.log(`✅ Chunk ${chunkIndex} AI response received (${aiResponse.length} chars)`);
 
     // Parse AI response
     let parsedScenes = parseGeminiResponse(aiResponse);
