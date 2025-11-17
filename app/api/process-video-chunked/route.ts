@@ -24,8 +24,8 @@ const replicate = new Replicate({
   auth: process.env.REPLICATE_API_TOKEN!,
 });
 
-// Increase timeout for chunked video processing (10 minutes)
-export const maxDuration = 600;
+// Increase timeout for chunked video processing (5 minutes - Vercel hobby plan limit)
+export const maxDuration = 300;
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
