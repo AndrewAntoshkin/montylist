@@ -60,28 +60,32 @@ export async function GET(
       );
     }
 
-    // Create Word document
+    // Create Word document with LANDSCAPE orientation
+    // A4 in twips: 210mm = 11906 twips, 297mm = 16838 twips
+    // For landscape, we specify PORTRAIT dimensions and library rotates them
     const doc = new Document({
       sections: [
         {
           properties: {
             page: {
-              // Landscape orientation - A4 landscape
               size: {
-                width: 16838,  // 29.7 cm in twips
-                height: 11906, // 21 cm in twips
+                // Specify dimensions in PORTRAIT order (short x long)
+                // Library will swap them in XML and add orient="landscape"
+                width: 11906,  // 210mm - A4 short side (becomes height in XML)
+                height: 16838, // 297mm - A4 long side (becomes width in XML)
                 orientation: PageOrientation.LANDSCAPE,
               },
               margin: {
                 top: 850,    // ~1.5cm
                 bottom: 850, // ~1.5cm
-                left: 850,   // 1.5cm
-                right: 850,  // 1.5cm
+                left: 850,   // ~1.5cm
+                right: 850,  // ~1.5cm
               },
             },
           },
           children: [
-            // Title: МОНТАЖНЫЙ ЛИСТ - 30pt centered
+            // ===== PAGE 1: TITLE PAGE =====
+            // Title: МОНТАЖНЫЕ ЛИСТЫ - 30pt centered vertically
             new Paragraph({
               children: [
                 new TextRun({
@@ -91,22 +95,10 @@ export async function GET(
                 }),
               ],
               alignment: AlignmentType.CENTER,
-              spacing: { before: 400, after: 400 },
+              spacing: { before: 4000, after: 800 },
             }),
             
-            // Empty line 1
-            new Paragraph({
-              text: '',
-              spacing: { after: 200 },
-            }),
-            
-            // Empty line 2
-            new Paragraph({
-              text: '',
-              spacing: { after: 200 },
-            }),
-            
-            // Video name - 16pt centered, capitalized first letter
+            // Video name - 16pt centered, double spacing from title
             new Paragraph({
               children: [
                 new TextRun({
@@ -115,31 +107,25 @@ export async function GET(
                 }),
               ],
               alignment: AlignmentType.CENTER,
-              spacing: { after: 400 },
+              spacing: { before: 400, after: 400 },
             }),
             
-            // Empty line 3
+            // Page break - information goes to second page
             new Paragraph({
-              text: '',
-              spacing: { after: 200 },
+              children: [new PageBreak()],
             }),
             
-            // Empty line 4
-            new Paragraph({
-              text: '',
-              spacing: { after: 200 },
-            }),
-            
-            // Film information - 14pt left aligned
+            // ===== PAGE 2: FILM INFORMATION =====
+            // Film information - 13pt left aligned
             new Paragraph({
               children: [
                 new TextRun({
                   text: 'Фирма-производитель – ',
-                  size: 28, // 14pt * 2
+                  size: 26, // 13pt * 2
                 }),
                 new TextRun({
                   text: video.film_metadata_json?.producer_company || '',
-                  size: 28,
+                  size: 26,
                 }),
               ],
               alignment: AlignmentType.LEFT,
@@ -149,11 +135,11 @@ export async function GET(
               children: [
                 new TextRun({
                   text: 'Год выпуска – ',
-                  size: 28,
+                  size: 26,
                 }),
                 new TextRun({
                   text: video.film_metadata_json?.release_year || '',
-                  size: 28,
+                  size: 26,
                 }),
               ],
               alignment: AlignmentType.LEFT,
@@ -163,11 +149,11 @@ export async function GET(
               children: [
                 new TextRun({
                   text: 'Страна производства – ',
-                  size: 28,
+                  size: 26,
                 }),
                 new TextRun({
                   text: video.film_metadata_json?.country || '',
-                  size: 28,
+                  size: 26,
                 }),
               ],
               alignment: AlignmentType.LEFT,
@@ -177,11 +163,11 @@ export async function GET(
               children: [
                 new TextRun({
                   text: 'Автор (ы) сценария – ',
-                  size: 28,
+                  size: 26,
                 }),
                 new TextRun({
                   text: video.film_metadata_json?.screenwriter || '',
-                  size: 28,
+                  size: 26,
                 }),
               ],
               alignment: AlignmentType.LEFT,
@@ -191,11 +177,11 @@ export async function GET(
               children: [
                 new TextRun({
                   text: 'Режиссер-постановщик – ',
-                  size: 28,
+                  size: 26,
                 }),
                 new TextRun({
                   text: video.film_metadata_json?.director || '',
-                  size: 28,
+                  size: 26,
                 }),
               ],
               alignment: AlignmentType.LEFT,
@@ -205,11 +191,11 @@ export async function GET(
               children: [
                 new TextRun({
                   text: 'Правообладатель (и) – ',
-                  size: 28,
+                  size: 26,
                 }),
                 new TextRun({
                   text: video.film_metadata_json?.copyright_holder || '',
-                  size: 28,
+                  size: 26,
                 }),
               ],
               alignment: AlignmentType.LEFT,
@@ -219,11 +205,11 @@ export async function GET(
               children: [
                 new TextRun({
                   text: 'Продолжительность фильма ',
-                  size: 28,
+                  size: 26,
                 }),
                 new TextRun({
                   text: video.film_metadata_json?.duration_text || '',
-                  size: 28,
+                  size: 26,
                 }),
               ],
               alignment: AlignmentType.LEFT,
@@ -233,11 +219,11 @@ export async function GET(
               children: [
                 new TextRun({
                   text: 'Количество серий – ',
-                  size: 28,
+                  size: 26,
                 }),
                 new TextRun({
                   text: video.film_metadata_json?.episodes_count || '',
-                  size: 28,
+                  size: 26,
                 }),
               ],
               alignment: AlignmentType.LEFT,
@@ -247,11 +233,11 @@ export async function GET(
               children: [
                 new TextRun({
                   text: 'Формат кадра ',
-                  size: 28,
+                  size: 26,
                 }),
                 new TextRun({
                   text: video.film_metadata_json?.frame_format || '',
-                  size: 28,
+                  size: 26,
                 }),
               ],
               alignment: AlignmentType.LEFT,
@@ -261,11 +247,11 @@ export async function GET(
               children: [
                 new TextRun({
                   text: 'Цветной / черно-белый – ',
-                  size: 28,
+                  size: 26,
                 }),
                 new TextRun({
                   text: video.film_metadata_json?.color_format || '',
-                  size: 28,
+                  size: 26,
                 }),
               ],
               alignment: AlignmentType.LEFT,
@@ -275,11 +261,11 @@ export async function GET(
               children: [
                 new TextRun({
                   text: 'Носитель информации – ',
-                  size: 28,
+                  size: 26,
                 }),
                 new TextRun({
                   text: video.film_metadata_json?.media_carrier || '',
-                  size: 28,
+                  size: 26,
                 }),
               ],
               alignment: AlignmentType.LEFT,
@@ -289,11 +275,11 @@ export async function GET(
               children: [
                 new TextRun({
                   text: 'Язык оригинала – ',
-                  size: 28,
+                  size: 26,
                 }),
                 new TextRun({
                   text: video.film_metadata_json?.original_language || '',
-                  size: 28,
+                  size: 26,
                 }),
               ],
               alignment: AlignmentType.LEFT,
@@ -303,11 +289,11 @@ export async function GET(
               children: [
                 new TextRun({
                   text: 'Язык надписей – ',
-                  size: 28,
+                  size: 26,
                 }),
                 new TextRun({
                   text: video.film_metadata_json?.subtitles_language || '',
-                  size: 28,
+                  size: 26,
                 }),
               ],
               alignment: AlignmentType.LEFT,
@@ -317,29 +303,28 @@ export async function GET(
               children: [
                 new TextRun({
                   text: 'Язык фонограммы – ',
-                  size: 28,
+                  size: 26,
                 }),
                 new TextRun({
                   text: video.film_metadata_json?.audio_language || '',
-                  size: 28,
+                  size: 26,
                 }),
               ],
               alignment: AlignmentType.LEFT,
               spacing: { after: 400 },
             }),
             
-            // Page break - table starts on second page
+            // Page break - table starts on new page (page 3)
             new Paragraph({
               children: [new PageBreak()],
             }),
             
-            // Montage Table - 10pt, full width
+            // Montage Table - 10pt, full width (starts on page 3)
             new Table({
               width: {
-                size: 100,
-                type: WidthType.PERCENTAGE,
+                size: 15138, // Full page width in DXA units (16838 - 850 - 850 margins)
+                type: WidthType.DXA,
               },
-              columnWidths: [1000, 1500, 1500, 1200, 3400, 3500], // Proportional widths in DXA units
               rows: [
                 // Header Row
                 new TableRow({
