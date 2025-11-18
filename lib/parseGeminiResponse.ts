@@ -16,13 +16,18 @@ export function parseGeminiResponse(text: string): ParsedScene[] {
         const jsonData = JSON.parse(jsonMatch[1]);
         if (Array.isArray(jsonData)) {
           console.log(`✅ Successfully parsed ${jsonData.length} scenes from JSON format`);
-          return jsonData.map((scene: any) => ({
-            start_timecode: convertJsonTimecode(scene.start),
-            end_timecode: convertJsonTimecode(scene.end),
-            plan_type: scene.plan_type || '',
-            description: (scene.visual_description || scene.content_summary || '').trim(),
-            dialogues: (scene.dialogue || '').trim(),
-          }));
+          return jsonData.map((scene: any) => {
+            const startTimecode = convertJsonTimecode(scene.start);
+            const endTimecode = convertJsonTimecode(scene.end);
+            return {
+              timecode: `${startTimecode} - ${endTimecode}`,
+              start_timecode: startTimecode,
+              end_timecode: endTimecode,
+              plan_type: scene.plan_type || '',
+              description: (scene.visual_description || scene.content_summary || '').trim(),
+              dialogues: (scene.dialogue || '').trim(),
+            };
+          });
         }
       }
     } catch (e) {
@@ -70,7 +75,7 @@ function parseScene(timecode: string, content: string): ParsedScene | null {
     // Extract "Содержание" field
     // Supports inline format: *   **Содержание:** текст.
     let description = '';
-    const contentMatch = content.match(/\*{1,3}\s*\*\*Содержание:\*\*\s*([^*]+?)(?=\s*\*{1,3}\s*\*\*|$)/is);
+    const contentMatch = content.match(/\*{1,3}\s*\*\*Содержание:\*\*\s*([^*]+?)(?=\s*\*{1,3}\s*\*\*|$)/i);
     if (contentMatch) {
       description = contentMatch[1].trim();
       // Clean up
@@ -81,7 +86,7 @@ function parseScene(timecode: string, content: string): ParsedScene | null {
     // Extract dialogues/sounds 
     // Supports inline format: *   **Диалоги/Музыка:** текст.
     let dialogues = '';
-    const dialoguesMatch = content.match(/\*{1,3}\s*\*\*Диалоги\/Музыка:\*\*\s*([^*]+?)(?=\s*\*{1,3}\s*\*\*|$)/is);
+    const dialoguesMatch = content.match(/\*{1,3}\s*\*\*Диалоги\/Музыка:\*\*\s*([^*]+?)(?=\s*\*{1,3}\s*\*\*|$)/i);
     if (dialoguesMatch) {
       dialogues = dialoguesMatch[1].trim();
       // Clean up formatting

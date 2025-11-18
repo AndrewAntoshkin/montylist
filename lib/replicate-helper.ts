@@ -62,7 +62,7 @@ export async function pollPrediction(
       }
       
       if (result.status === 'failed' || result.status === 'canceled') {
-        const errorMsg = result.error || 'Unknown error';
+        const errorMsg = String(result.error || 'Unknown error');
         
         // Check if E6716 (temporary Replicate error)
         if (errorMsg.includes('E6716') || errorMsg.includes('Director: unexpected error')) {
