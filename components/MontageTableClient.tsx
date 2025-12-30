@@ -25,6 +25,7 @@ export default function MontageTableClient({
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [downloading, setDownloading] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [renumbering, setRenumbering] = useState(false);
   const exportMenuRef = useRef<HTMLDivElement>(null);
 
   // Close export menu when clicking outside
@@ -106,13 +107,42 @@ export default function MontageTableClient({
     }
   };
 
+  const handleRenumber = async () => {
+    if (!confirm('Перенумеровать планы? Все планы будут пронумерованы заново от 1 до ' + entries.length)) {
+      return;
+    }
+
+    setRenumbering(true);
+    try {
+      const response = await fetch('/api/renumber-plans', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ videoId: video.id }),
+      });
+
+      const result = await response.json();
+      
+      if (response.ok) {
+        alert('Планы успешно перенумерованы! Обновите страницу, чтобы увидеть изменения.');
+        window.location.reload();
+      } else {
+        alert('Ошибка при перенумерации: ' + (result.error || 'Unknown error'));
+      }
+    } catch (error) {
+      console.error('Error renumbering plans:', error);
+      alert('Ошибка при перенумерации планов');
+    } finally {
+      setRenumbering(false);
+    }
+  };
+
   return (
-    <div className="flex-1 flex flex-col bg-[#191919]">
+    <div className="flex-1">
       {/* Header */}
       <Header user={user} profile={profile} />
 
       {/* Main Content */}
-      <main className="pt-[62px] flex-1 bg-[#101010]">
+      <main className="flex-1">
         <div className="max-w-[1400px] mx-auto px-8 py-6">
           {/* Top Section */}
           <div className="flex flex-col gap-4 mb-4">
@@ -133,7 +163,7 @@ export default function MontageTableClient({
               </div>
             </div>
 
-            {/* Title and Download Button */}
+            {/* Title and Action Buttons */}
             <div className="flex items-start justify-between w-full gap-4">
               <h1 
                 className="text-white text-base font-medium leading-7 flex-1 truncate" 
@@ -142,8 +172,21 @@ export default function MontageTableClient({
                 {video.original_filename || 'Название фильма'}
               </h1>
               
+              <div className="flex gap-3 shrink-0">
+                {/* Renumber Button */}
+                <button
+                  onClick={handleRenumber}
+                  disabled={renumbering}
+                  className="h-10 px-4 py-2.5 bg-[#2a2a2a] rounded-lg hover:bg-[#3e3e3e] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                  title="Перенумеровать планы (исправить пропуски в нумерации)"
+                >
+                  <span className="text-white text-sm font-medium leading-none tracking-[-0.3962px]">
+                    {renumbering ? 'Перенумерация...' : 'Перенумеровать'}
+                  </span>
+                </button>
+              
               {/* Download Dropdown */}
-              <div className="relative shrink-0" ref={exportMenuRef}>
+                <div className="relative" ref={exportMenuRef}>
                 <button
                   onClick={() => setShowExportMenu(!showExportMenu)}
                   disabled={downloading}
@@ -179,6 +222,7 @@ export default function MontageTableClient({
                     </button>
                   </div>
                 )}
+                </div>
               </div>
             </div>
           </div>

@@ -72,8 +72,9 @@ class ReplicatePool {
     }
 
     // Ждем пока появится доступный клиент
+    // Gemini 3 Pro обрабатывает ~2-4 минуты на чанк, увеличиваем timeout
     let attempts = 0;
-    const maxAttempts = 60; // 60 * 1000ms = 1 minute max wait
+    const maxAttempts = 300; // 300 * 1000ms = 5 minutes max wait
 
     while (attempts < maxAttempts) {
       // Найти клиент с минимальным количеством активных запросов и не превышающий лимит

@@ -70,3 +70,6 @@ await supabase.storage.from('video-chunks').upload(...)
 **Дата:** 17 ноября 2025  
 **Статус:** В процессе исправления
 
+
+
+

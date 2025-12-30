@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Logo from './Logo';
 import UserMenu from './UserMenu';
@@ -12,39 +13,45 @@ interface HeaderProps {
 }
 
 export default function Header({ user, profile }: HeaderProps = {}) {
+  const [isScrolled, setIsScrolled] = useState(false);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      // Если прокрутили больше 10px, меняем фон
+      setIsScrolled(window.scrollY > 10);
+    };
+
+    // Добавляем слушатель события скролла
+    window.addEventListener('scroll', handleScroll);
+
+    // Проверяем начальное состояние
+    handleScroll();
+
+    // Очищаем слушатель при размонтировании
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
   return (
-    <div className="fixed top-0 left-0 right-0 h-[62px] bg-[#191919] z-50">
-      <div className="max-w-[1400px] mx-auto h-full px-8 flex items-center justify-between">
+    <div className="sticky top-3 z-50 flex justify-center">
+      <div className={`h-[62px] rounded-[24px] w-[calc(100%-64px)] max-w-[1427px] px-6 py-5 flex items-center justify-between transition-colors duration-300 ${isScrolled ? 'bg-[#191919]' : 'bg-[#101010]'}`}>
         {/* Logo */}
-        <Link href="/dashboard">
+        <Link href="/" className="shrink-0">
           <Logo />
         </Link>
 
         {/* Right section */}
-        <div className="flex items-center gap-5">
+        <div className="flex items-center gap-5 grow justify-end">
           {/* Navigation links */}
           <div className="flex items-center gap-6">
             <Link
               href="/dashboard"
-              className="text-[#eaeaeb] text-[14px] font-medium tracking-[-0.098px] leading-[22px] hover:text-white transition-colors"
+              className="text-[#eaeaeb] text-sm font-medium tracking-[-0.098px] leading-[22px] hover:text-white transition-colors whitespace-nowrap"
             >
               Листы
             </Link>
             <Link
-              href="/pricing"
-              className="text-[#eaeaeb] text-[14px] font-medium tracking-[-0.098px] leading-[22px] hover:text-white transition-colors"
-            >
-              Планы
-            </Link>
-            <Link
-              href="/about"
-              className="text-[#eaeaeb] text-[14px] font-medium tracking-[-0.098px] leading-[22px] hover:text-white transition-colors"
-            >
-              Про сервис
-            </Link>
-            <Link
               href="#"
-              className="text-[#eaeaeb] text-[14px] font-medium tracking-[-0.098px] leading-[22px] hover:text-white transition-colors"
+              className="text-[#eaeaeb] text-sm font-medium tracking-[-0.098px] leading-[22px] hover:text-white transition-colors whitespace-nowrap"
             >
               Поддержка
             </Link>

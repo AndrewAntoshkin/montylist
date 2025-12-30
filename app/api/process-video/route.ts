@@ -3,7 +3,9 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import Replicate from 'replicate';
 import { parseGeminiResponse, parseAlternativeFormat } from '@/lib/parseGeminiResponse';
-import { MONTAGE_ANALYSIS_PROMPT } from '@/lib/gemini-prompt';
+import { MONTAGE_ANALYSIS_PROMPT, createFullVideoPrompt } from '@/lib/gemini-prompt';
+import { mergeScriptWithMontage } from '@/lib/script-video-merger';
+import type { ScriptData } from '@/types';
 
 const replicate = new Replicate({
   auth: process.env.REPLICATE_API_TOKEN!,
@@ -15,7 +17,7 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
   try {
-    const { videoId, videoUrl } = await request.json();
+    const { videoId, videoUrl, scriptData } = await request.json();
 
     if (!videoId || !videoUrl) {
       return NextResponse.json(
@@ -34,16 +36,30 @@ export async function POST(request: NextRequest) {
       .eq('id', videoId);
 
     try {
+      // Create prompt with script characters if available
+      const prompt = scriptData 
+        ? createFullVideoPrompt(scriptData as ScriptData)
+        : MONTAGE_ANALYSIS_PROMPT;
+      
+      // Log script data if present
+      if (scriptData?.characters?.length > 0) {
+        console.log(`📋 Using script with ${scriptData.characters.length} characters`);
+        const mainChars = scriptData.characters.filter((c: any) => c.dialogueCount >= 5);
+        if (mainChars.length > 0) {
+          console.log(`   🌟 Main characters: ${mainChars.map((c: any) => c.name).join(', ')}`);
+        }
+      }
+      
       // Create prediction in async mode (don't wait for result)
       console.log('Creating Replicate prediction for video:', videoId);
       console.log('Video URL:', videoUrl);
-      console.log('Prompt length:', MONTAGE_ANALYSIS_PROMPT.length);
+      console.log('Prompt length:', prompt.length);
       
       const prediction = await replicate.predictions.create({
-        model: 'google/gemini-2.5-flash',
+        model: 'google/gemini-3-pro',
         input: {
           videos: [videoUrl],
-          prompt: MONTAGE_ANALYSIS_PROMPT,
+          prompt: prompt,
         },
       });
 
@@ -101,6 +117,34 @@ export async function POST(request: NextRequest) {
 
       if (parsedScenes.length === 0) {
         throw new Error('Failed to parse any scenes from output');
+      }
+      
+      // ═══════════════════════════════════════════════════════════════
+      // POST-PROCESSING: Merge with script data to fix generic names
+      // ═══════════════════════════════════════════════════════════════
+      if (scriptData?.characters?.length > 0) {
+        console.log('📋 Merging with script data to fix generic names...');
+        
+        const mergeResult = mergeScriptWithMontage(
+          parsedScenes.map((scene, idx) => ({
+            id: String(idx),
+            description: scene.description,
+            dialogues: scene.dialogues,
+          })),
+          scriptData as ScriptData
+        );
+        
+        // Apply merged dialogues back to scenes
+        for (let i = 0; i < parsedScenes.length && i < mergeResult.entries.length; i++) {
+          if (mergeResult.entries[i].dialogues) {
+            parsedScenes[i].dialogues = mergeResult.entries[i].dialogues!;
+          }
+        }
+        
+        console.log(`✅ Merge complete: ${mergeResult.stats.replacementsMade} replacements made`);
+        if (mergeResult.stats.genericNamesFound.length > 0) {
+          console.log(`   Generic names found: ${mergeResult.stats.genericNamesFound.join(', ')}`);
+        }
       }
 
       // Get video record to get user_id

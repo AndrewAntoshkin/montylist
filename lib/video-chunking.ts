@@ -29,12 +29,20 @@ export function secondsToTimecode(seconds: number): string {
 /**
  * Convert HH:MM:SS:FF timecode to seconds (ignores frames)
  */
-export function timecodeToSeconds(timecode: string): number {
+export function timecodeToSeconds(timecode: string, fps: number = 24): number {
   const parts = timecode.split(':').map(Number);
   
   if (parts.length === 4) {
-    // HH:MM:SS:FF (ignore frames for second calculation)
-    return parts[0] * 3600 + parts[1] * 60 + parts[2];
+    // HH:MM:SS:FF - include frames as fraction of second
+    const hours = parts[0];
+    const minutes = parts[1];
+    const seconds = parts[2];
+    const frames = parts[3];
+    
+    // Convert frames to fraction of second (assuming 24fps by default)
+    const frameSeconds = frames / fps;
+    
+    return hours * 3600 + minutes * 60 + seconds + frameSeconds;
   } else if (parts.length === 3) {
     // HH:MM:SS
     return parts[0] * 3600 + parts[1] * 60 + parts[2];
@@ -48,12 +56,16 @@ export function timecodeToSeconds(timecode: string): number {
 
 /**
  * Create video chunks for processing long videos
- * - Each chunk is ~20 minutes (1200 seconds)
- * - Overlaps by 15 seconds to avoid missing scenes at boundaries
+ * - Each chunk is 3 minutes (180 seconds) - good balance for Gemini context
+ * - NO OVERLAP! Дедупликация происходит на уровне финализации
+ * 
+ * ВАЖНО: Раньше был overlap 10 сек, но это вызывало дублирование планов!
+ * Теперь чанки идут встык, а диалоги на границах обрабатываются через
+ * сплит реплик в промпте.
  */
 export function createVideoChunks(videoDuration: number): VideoChunk[] {
-  const CHUNK_DURATION = 1200; // 20 minutes
-  const OVERLAP_DURATION = 15; // 15 seconds overlap between chunks
+  const CHUNK_DURATION = 180; // 3 minutes
+  const OVERLAP_DURATION = 0; // БЕЗ OVERLAP! Было 10, вызывало дубли
   
   // If video is shorter than chunk duration, process as single chunk
   if (videoDuration <= CHUNK_DURATION) {
@@ -92,7 +104,7 @@ export function createVideoChunks(videoDuration: number): VideoChunk[] {
     
     // But if we're very close to the end, just finish
     if (videoDuration - currentStart < 60) {
-      // Less than 1 minute left
+      // Less than 1 minute left - include in last chunk
       break;
     }
     
@@ -103,27 +115,100 @@ export function createVideoChunks(videoDuration: number): VideoChunk[] {
 }
 
 /**
+ * Вычисляет Jaccard similarity между двумя текстами
+ * Сравнивает множества слов (более устойчиво к перефразированию)
+ */
+function jaccardSimilarity(text1: string, text2: string): number {
+  if (!text1 || !text2) return 0;
+  
+  // Извлекаем слова (только кириллица и латиница, минимум 2 символа)
+  const words1 = new Set(
+    text1.toLowerCase().match(/[а-яёa-z]{2,}/g) || []
+  );
+  const words2 = new Set(
+    text2.toLowerCase().match(/[а-яёa-z]{2,}/g) || []
+  );
+  
+  if (words1.size === 0 || words2.size === 0) return 0;
+  
+  // Intersection
+  const intersection = Array.from(words1).filter(w => words2.has(w));
+  
+  // Union
+  const union = new Set([...words1, ...words2]);
+  
+  return intersection.length / union.size;
+}
+
+/**
  * Remove duplicate scenes that may appear in overlap zones between chunks
- * Deduplicates based on timecode similarity (within 2 seconds)
+ * IMPROVED: Semantic deduplication using Jaccard similarity
  */
 export function deduplicateScenes(scenes: any[]): any[] {
   if (scenes.length === 0) return [];
   
   const deduplicated: any[] = [];
-  const TIMECODE_THRESHOLD = 2; // seconds
+  const seen = new Set<string>(); // Track exact timecode combinations
+  let exactDuplicates = 0;
+  let semanticDuplicates = 0;
   
   for (const scene of scenes) {
+    // Create unique key from start AND end timecode
+    const timecodeKey = `${scene.start_timecode}|${scene.end_timecode}`;
+    
+    // Check for EXACT duplicate (same start AND end timecode)
+    if (seen.has(timecodeKey)) {
+      exactDuplicates++;
+      continue;
+    }
+    
+    // Check for NEAR duplicate using semantic similarity
     const sceneStartSeconds = timecodeToSeconds(scene.start_timecode);
     
-    // Check if this scene is a duplicate (similar start timecode)
-    const isDuplicate = deduplicated.some(existing => {
+    const duplicateInfo = deduplicated.reduce<{ isDuplicate: boolean; reason: string }>((result, existing) => {
+      if (result.isDuplicate) return result;
+      
       const existingStartSeconds = timecodeToSeconds(existing.start_timecode);
-      return Math.abs(existingStartSeconds - sceneStartSeconds) < TIMECODE_THRESHOLD;
-    });
+      const timeDiff = Math.abs(existingStartSeconds - sceneStartSeconds);
+      
+      // Близкие по времени сцены (в пределах 2 секунд)
+      if (timeDiff < 2.0) {
+        const existingContent = existing.description || '';
+        const sceneContent = scene.description || '';
+        
+        // Вычисляем семантическую схожесть (Jaccard)
+        const descSimilarity = jaccardSimilarity(existingContent, sceneContent);
+        
+        // Также проверяем диалоги
+        const existingDialogues = existing.dialogues || '';
+        const sceneDialogues = scene.dialogues || '';
+        const dialogueSimilarity = jaccardSimilarity(existingDialogues, sceneDialogues);
+        
+        // Средняя схожесть (описание важнее диалогов)
+        const avgSimilarity = (descSimilarity * 0.7) + (dialogueSimilarity * 0.3);
+        
+        // Порог зависит от близости таймкодов
+        // Чем ближе таймкоды - тем ниже требуемая семантическая схожесть
+        const similarityThreshold = timeDiff < 0.5 ? 0.4 : 0.6;
+        
+        if (avgSimilarity > similarityThreshold) {
+          return { 
+            isDuplicate: true, 
+            reason: `timeDiff=${timeDiff.toFixed(2)}s, similarity=${avgSimilarity.toFixed(2)}` 
+          };
+        }
+      }
+      
+      return result;
+    }, { isDuplicate: false, reason: '' });
     
-    if (!isDuplicate) {
-      deduplicated.push(scene);
+    if (duplicateInfo.isDuplicate) {
+      semanticDuplicates++;
+      continue;
     }
+    
+    deduplicated.push(scene);
+    seen.add(timecodeKey);
   }
   
   // Sort by timecode to ensure correct order
@@ -132,6 +217,10 @@ export function deduplicateScenes(scenes: any[]): any[] {
     const bSeconds = timecodeToSeconds(b.start_timecode);
     return aSeconds - bSeconds;
   });
+  
+  console.log(`🔍 Deduplication: ${scenes.length} → ${deduplicated.length}`);
+  console.log(`   📌 Exact duplicates removed: ${exactDuplicates}`);
+  console.log(`   🔗 Semantic duplicates removed: ${semanticDuplicates}`);
   
   return deduplicated;
 }

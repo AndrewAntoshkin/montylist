@@ -31,7 +31,7 @@ export interface VideoChunkFile {
 }
 
 /**
- * Downloads video from URL to local temp file
+ * Downloads video from URL to local temp file using streaming (FAST!)
  */
 export async function downloadVideo(videoUrl: string, outputPath: string): Promise<void> {
   console.log(`📥 Downloading video from: ${videoUrl.substring(0, 100)}...`);
@@ -41,10 +41,51 @@ export async function downloadVideo(videoUrl: string, outputPath: string): Promi
     throw new Error(`Failed to download video: ${response.statusText}`);
   }
   
-  const buffer = await response.arrayBuffer();
-  await writeFileAsync(outputPath, Buffer.from(buffer));
+  // Get content length for progress
+  const contentLength = response.headers.get('content-length');
+  const totalBytes = contentLength ? parseInt(contentLength, 10) : 0;
+  console.log(`📦 File size: ${totalBytes ? (totalBytes / (1024 * 1024)).toFixed(1) + ' MB' : 'unknown'}`);
   
-  console.log(`✅ Video downloaded to: ${outputPath}`);
+  // Use streaming for large files (MUCH faster!)
+  const fileStream = fs.createWriteStream(outputPath);
+  
+  if (!response.body) {
+    throw new Error('Response body is null');
+  }
+  
+  const reader = response.body.getReader();
+  let downloadedBytes = 0;
+  let lastProgressLog = 0;
+  
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      
+      if (done) break;
+      
+      fileStream.write(Buffer.from(value));
+      downloadedBytes += value.length;
+      
+      // Log progress every 10%
+      if (totalBytes > 0) {
+        const progress = Math.floor((downloadedBytes / totalBytes) * 100);
+        if (progress >= lastProgressLog + 10) {
+          console.log(`📥 Download progress: ${progress}% (${(downloadedBytes / (1024 * 1024)).toFixed(1)} MB)`);
+          lastProgressLog = progress;
+        }
+      }
+    }
+  } finally {
+    fileStream.end();
+  }
+  
+  // Wait for file to finish writing
+  await new Promise<void>((resolve, reject) => {
+    fileStream.on('finish', resolve);
+    fileStream.on('error', reject);
+  });
+  
+  console.log(`✅ Video downloaded to: ${outputPath} (${(downloadedBytes / (1024 * 1024)).toFixed(1)} MB)`);
 }
 
 /**
@@ -75,12 +116,8 @@ export async function splitVideoIntoChunks(
         .setDuration(duration)
         .output(outputPath)
         .outputOptions([
-          '-c:v libx264',         // Re-encode video для корректного moov atom
-          '-preset ultrafast',    // Максимальная скорость
-          '-crf 23',              // Качество
-          '-c:a aac',             // Re-encode audio to AAC
-          '-b:a 128k',            // Audio bitrate
-          '-ar 44100',            // Sample rate
+          '-c:v copy',            // Copy video stream (no re-encode!)
+          '-c:a copy',            // Copy audio stream (no re-encode!)
           '-movflags +faststart', // moov atom в начало (CRITICAL!)
           '-f mp4',               // Force MP4 format
         ])

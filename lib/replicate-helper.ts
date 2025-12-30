@@ -64,9 +64,20 @@ export async function pollPrediction(
       if (result.status === 'failed' || result.status === 'canceled') {
         const errorMsg = String(result.error || 'Unknown error');
         
-        // Check if E6716 (temporary Replicate error)
+        // Log full error details for debugging
+        console.error(`❌ Prediction failed with status: ${result.status}`);
+        console.error(`❌ Error message: ${errorMsg}`);
+        console.error(`❌ Full result:`, JSON.stringify(result, null, 2));
+        
+        // Check if E6716 or E004 (temporary Replicate errors)
         if (errorMsg.includes('E6716') || errorMsg.includes('Director: unexpected error')) {
           console.error(`⚠️  E6716 error detected. This is likely a temporary Replicate issue.`);
+        }
+        if (errorMsg.includes('E004') || errorMsg.includes('Service is temporarily unavailable')) {
+          console.error(`⚠️  E004 error detected. Replicate service is temporarily unavailable.`);
+        }
+        if (errorMsg.includes('429') || errorMsg.includes('RESOURCE_EXHAUSTED')) {
+          console.error(`⚠️  429 QUOTA EXHAUSTED! Google Gemini API quota exceeded. Check billing or wait for reset.`);
         }
         
         throw new Error(`Prediction ${result.status}: ${errorMsg}`);

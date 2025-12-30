@@ -33,11 +33,13 @@ export default async function DashboardPage() {
     .single();
 
   return (
-    <DashboardClient
-      videos={mappedVideos}
-      user={user}
-      profile={profile}
-    />
+    <div className="min-h-screen bg-[#101010]">
+      <DashboardClient
+        videos={mappedVideos}
+        user={user}
+        profile={profile}
+      />
+    </div>
   );
 }
 

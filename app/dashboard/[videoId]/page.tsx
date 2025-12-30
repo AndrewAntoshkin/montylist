@@ -34,19 +34,26 @@ export default async function MontagePage({ params }: PageProps) {
     notFound();
   }
 
-  // Fetch montage sheet
+  // Fetch montage sheet (use maybeSingle to handle duplicates gracefully)
   const { data: sheet, error: sheetError } = await supabase
     .from('montage_sheets')
     .select('*')
     .eq('video_id', videoId)
-    .single();
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
 
+  // DEBUG: Log what we found
+  console.log(`🔍 Video ${videoId} status: ${video.status}`);
+  console.log(`🔍 Sheet found: ${!!sheet}, Error: ${sheetError?.message || 'none'}`);
+  
   if (sheetError || !sheet) {
+    console.log(`⚠️  No sheet found for video ${videoId}, showing loading state`);
     // Video exists but no montage sheet yet (might be processing)
     return (
-      <div className="flex-1 bg-[#191919] flex items-center justify-center">
+      <div className="min-h-screen bg-[#101010] flex items-center justify-center">
         <div className="text-center">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-[#101010] rounded-full mb-4">
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-[#191919] rounded-full mb-4">
             <div className="w-8 h-8 border-4 border-[#2e2e2e] border-t-white rounded-full animate-spin"></div>
           </div>
           <h2 className="text-xl font-semibold text-white mb-2">
@@ -79,13 +86,15 @@ export default async function MontagePage({ params }: PageProps) {
     .single();
 
   return (
-    <MontageTableClient
-      video={video as Video}
-      sheet={sheet as MontageSheet}
-      entries={(entries as MontageEntry[]) || []}
-      user={user}
-      profile={profile}
-    />
+    <div className="min-h-screen bg-[#101010]">
+      <MontageTableClient
+        video={video as Video}
+        sheet={sheet as MontageSheet}
+        entries={(entries as MontageEntry[]) || []}
+        user={user}
+        profile={profile}
+      />
+    </div>
   );
 }
 

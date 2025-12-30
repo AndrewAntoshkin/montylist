@@ -112,7 +112,7 @@ export default function UserMenu({ user, profile }: UserMenuProps) {
 
       {/* Dropdown Menu */}
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-80 bg-[#111111] border border-[#262626] rounded-2xl shadow-[0_12px_24px_rgba(0,0,0,0.45)] overflow-hidden z-50">
+        <div className="absolute right-0 mt-2 w-80 bg-[#111111] border border-[#262626] rounded-2xl shadow-[0_12px_24px_rgba(0,0,0,0.45)] overflow-hidden z-[100]">
           <div className="px-4 py-5 space-y-4">
             <p className="text-white text-sm font-medium">Профиль</p>
 

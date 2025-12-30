@@ -363,3 +363,6 @@ npm install @ffmpeg-installer/ffmpeg --force
 
 **Теперь мы физически режем видео! Gemini получает короткие фрагменты! ✂️✨**
 
+
+
+

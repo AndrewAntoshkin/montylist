@@ -115,4 +115,27 @@ export interface ParsedScene {
   dialogues: string;
 }
 
+// Script types
+export interface ScriptCharacterInfo {
+  name: string;              // Имя персонажа (заглавными)
+  normalizedName: string;    // Нормализованное имя
+  dialogueCount: number;     // Количество реплик
+  gender?: 'male' | 'female' | 'unknown';
+  variants: string[];        // Варианты имени
+  description?: string;      // Описание внешности из сценария
+}
+
+export interface ScriptData {
+  title?: string;                    // Название
+  characters: ScriptCharacterInfo[]; // Персонажи
+  sceneCount: number;                // Количество сцен
+  format: 'standard' | 'freeform';   // Формат сценария
+  uploadedAt: string;                // Время загрузки
+}
+
+// Extended FilmMetadata with script data
+export interface FilmMetadataWithScript extends FilmMetadata {
+  scriptData?: ScriptData;           // Данные из сценария
+}
+
 

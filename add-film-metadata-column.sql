@@ -9,3 +9,6 @@ CREATE INDEX IF NOT EXISTS idx_videos_film_metadata ON videos USING GIN (film_me
 -- Add comment to explain the column
 COMMENT ON COLUMN videos.film_metadata_json IS 'Stores film metadata including producer, director, year, country, etc.';
 
+
+
+

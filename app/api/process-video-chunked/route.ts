@@ -229,9 +229,9 @@ export async function POST(request: NextRequest) {
         // NOW USING CHUNK VIDEO URL instead of full video!
         const prediction = await createPredictionWithRetry(
           replicate,
-          'google/gemini-2.5-flash',
+          'google/gemini-3-pro',
           {
-            videos: [chunkVideoUrl], // ← Using chunk video!
+            videos: [chunkVideoUrl],
             prompt: chunkPrompt,
           },
           3 // max 3 retries
@@ -300,9 +300,9 @@ export async function POST(request: NextRequest) {
         }
 
         // Filter out scenes from overlap region (except for last chunk)
-        // Overlap region is last 15 seconds of each chunk
+        // Overlap region is last 10 seconds of each chunk (must match createVideoChunks)
         if (chunk.chunkIndex < chunks.length - 1) {
-          const overlapStartTime = chunk.endTime - 15; // 15 seconds overlap (absolute time)
+          const overlapStartTime = chunk.endTime - 10; // 10 seconds overlap (absolute time)
           const beforeFilterCount = parsedScenes.length;
           
           parsedScenes = parsedScenes.filter(scene => {

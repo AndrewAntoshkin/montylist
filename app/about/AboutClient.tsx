@@ -85,12 +85,12 @@ export default function AboutClient({ user, profile }: AboutClientProps) {
   const [openFAQIndex, setOpenFAQIndex] = useState<number | null>(1); // Second item open by default
 
   return (
-    <div className="bg-[#191919] min-h-screen flex flex-col">
+    <div className="flex-1">
       <Header user={user} profile={profile} />
       
       {/* Main Content */}
-      <div className="bg-[#101010] flex-1 box-border px-8 py-6 pt-[86px]">
-        <div className="max-w-[880px] mx-auto pb-20">
+      <div className="flex-1 py-6">
+        <div className="max-w-[880px] mx-auto px-8 pb-20">
           {/* Header Section */}
           <div className="flex flex-col gap-12 items-center justify-center overflow-clip pt-16 pb-20">
             <div className="flex flex-col gap-5 items-start w-full">

@@ -21,5 +21,9 @@ export default async function AboutPage() {
     profile = data;
   }
 
-  return <AboutClient user={user || undefined} profile={profile} />;
+  return (
+    <div className="min-h-screen bg-[#101010]">
+      <AboutClient user={user || undefined} profile={profile} />
+    </div>
+  );
 }

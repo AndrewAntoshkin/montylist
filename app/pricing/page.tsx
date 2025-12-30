@@ -24,12 +24,12 @@ export default async function PricingPage() {
   }
 
   return (
-    <div className="bg-[#191919] min-h-screen flex flex-col">
+    <div className="bg-[#101010] min-h-screen">
       <Header user={user || undefined} profile={profile} />
       
       {/* Main Content */}
-      <div className="bg-[#101010] flex-1 box-border px-8 pt-[86px] pb-16">
-        <div className="max-w-[1200px] mx-auto">
+      <div className="flex-1 pb-16">
+        <div className="max-w-[1200px] mx-auto px-8">
           {/* Header Section */}
           <div className="flex flex-col items-center justify-center overflow-clip pt-16 pb-14 gap-12">
             <div className="flex flex-col items-center gap-5 text-center max-w-[842px]">

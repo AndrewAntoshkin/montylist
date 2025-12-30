@@ -128,3 +128,6 @@ ALTER TABLE videos DROP COLUMN IF EXISTS film_metadata_json;
 - Добавлен GIN индекс для быстрого поиска по метаданным
 - Старые видео без метаданных продолжат работать нормально
 
+
+
+
