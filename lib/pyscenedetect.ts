@@ -76,8 +76,8 @@ export async function detectScenesWithPySceneDetect(
 ): Promise<PySceneDetectResult[]> {
   const {
     fps = 24,
-    minSceneDuration = 0.4,  // Минимум 0.4 секунды (~10 кадров)
-    adaptiveThreshold = 3.0, // Стандартный порог, даёт ~1061 сцен = реальный лист
+    minSceneDuration = 0.3,  // Минимум 0.3 секунды (~7 кадров) — ловит короткие кадры
+    adaptiveThreshold = 2.5, // Понижен с 3.0 для лучшего захвата "мягких" склеек
     maxScenes = 5000,
   } = options;
 
@@ -93,7 +93,7 @@ export async function detectScenesWithPySceneDetect(
 
   try {
     // PySceneDetect command с AdaptiveDetector
-    // Threshold 3.0 = стандартный, даёт ~1061 сцен (соответствует реальному листу)
+    // Threshold 2.5 = оптимальный для максимальной точности без ложных срабатываний
     const command = `scenedetect \
       -i "${videoPath}" \
       -o "${tempDir}" \

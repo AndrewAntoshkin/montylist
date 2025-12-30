@@ -188,19 +188,29 @@ function extractShortNames(fullName: string): string[] {
 
 /**
  * Заменяет полные имена на короткие формы в тексте
+ * ВАЖНО: \b не работает с кириллицей, используем явные границы
  */
 function replaceFullNamesWithShort(text: string): string {
+  if (!text) return text;
+  
   let result = text;
   for (const [full, short] of Object.entries(FULL_TO_SHORT)) {
-    // Заменяем FULL на short (сохраняем регистр)
-    const regexUpper = new RegExp(`\\b${full}\\b`, 'g');
-    result = result.replace(regexUpper, short);
+    // Кириллическая граница слова: начало строки, пробел, перенос, или конец строки
+    // Заменяем UPPERCASE (ГАЛИНА → ГАЛЯ)
+    const regexUpper = new RegExp(`(^|[\\s\\n])${full}([\\s\\n]|$)`, 'g');
+    result = result.replace(regexUpper, `$1${short}$2`);
     
-    // Заменяем полное имя с заглавной буквы (Галина → Галя)
+    // Заменяем Capitalized (Галина → Галя)
     const fullCapitalized = full.charAt(0) + full.slice(1).toLowerCase();
     const shortCapitalized = short.charAt(0) + short.slice(1).toLowerCase();
-    const regexCapitalized = new RegExp(`\\b${fullCapitalized}\\b`, 'g');
-    result = result.replace(regexCapitalized, shortCapitalized);
+    const regexCapitalized = new RegExp(`(^|[\\s\\n])${fullCapitalized}([\\s\\n]|$)`, 'g');
+    result = result.replace(regexCapitalized, `$1${shortCapitalized}$2`);
+    
+    // Заменяем lowercase (галина → галя)
+    const fullLower = full.toLowerCase();
+    const shortLower = short.toLowerCase();
+    const regexLower = new RegExp(`(^|[\\s\\n])${fullLower}([\\s\\n]|$)`, 'g');
+    result = result.replace(regexLower, `$1${shortLower}$2`);
   }
   return result;
 }
@@ -257,6 +267,12 @@ function normalizePlanType(planType: string): string {
   
   // Стандартизируем форматы
   const lowerType = normalized.toLowerCase();
+  
+  // "Нарезка" → стандартный тип (обычно для заставок)
+  if (lowerType.includes('нарезка')) {
+    if (lowerType.includes('ндп')) return 'Ср. НДП';
+    return 'Ср. НДП'; // Нарезка обычно с титрами
+  }
   
   // НДП варианты
   if (lowerType.includes('ндп')) {
@@ -1020,39 +1036,133 @@ export async function POST(request: NextRequest) {
           }
           
           // ═══════════════════════════════════════════════════════════════
-          // ПРАВИЛО 1: Gemini видит спикера?
+          // ПРАВИЛО 0: Gemini указал НЕСКОЛЬКИХ спикеров? → НЕ ТРОГАЕМ!
           // ═══════════════════════════════════════════════════════════════
           const geminiDialogues = scene.dialogues || '';
+          
+          // Считаем количество спикеров в Gemini-ответе
+          const speakerLines = geminiDialogues.split('\n').filter(line => {
+            const trimmed = line.trim();
+            // Строка с именем спикера: ГАЛЯ, БЭЛЛА ЗК, ИОСИФ и т.д.
+            return /^[А-ЯЁA-Z][А-ЯЁа-яёA-Za-z]{1,15}(\s*(ЗК|ГЗ))?$/.test(trimmed);
+          });
+          
+          // Если Gemini уже правильно разметил несколько спикеров — оставляем как есть!
+          if (speakerLines.length >= 2) {
+            // Обновляем lastSpeaker для следующих сцен
+            const lastSpeakerLine = speakerLines[speakerLines.length - 1];
+            lastSpeaker = lastSpeakerLine.replace(/\s*(ЗК|ГЗ)\s*/g, '').trim();
+            
+            if (sceneIndex < 5) {
+              console.log(`   📋 Multi-speaker scene preserved: ${speakerLines.length} speakers (${scene.start_timecode})`);
+            }
+            return scene; // Оставляем Gemini-разметку как есть
+          }
+          
+          // ═══════════════════════════════════════════════════════════════
+          // АНАЛИЗ ТРЕТЬЕГО ЛИЦА: о ком говорят? (делаем СНАЧАЛА!)
+          // Если говорят "ты не Галя" или "где Галя?" — Галя НЕ говорит!
+          // ═══════════════════════════════════════════════════════════════
+          const excludedSpeakers: string[] = [];
+          const speechLower = whisperText.toLowerCase();
+          
+          for (const char of knownCharacters) {
+            const charLower = char.toLowerCase();
+            // Паттерны третьего лица: "не Галя", "где Галя", "моя жена Галя", "это Галя?"
+            const thirdPersonPatterns = [
+              `не ${charLower}`,           // "ты не Галя"
+              `где ${charLower}`,          // "где Галя?"
+              `это ${charLower}`,          // "это Галя?"
+              `жена ${charLower}`,         // "моя жена Галя"
+              `муж ${charLower}`,          // "мой муж Юсеф"
+              `ищу ${charLower}`,          // "ищу Галю"
+              `${charLower} моя`,          // "Галя моя жена"
+              `${charLower} мой`,          // "Юсеф мой муж"
+              `позови ${charLower}`,       // "позови Галю"
+              `найди ${charLower}`,        // "найди Галю"
+            ];
+            
+            for (const pattern of thirdPersonPatterns) {
+              if (speechLower.includes(pattern)) {
+                excludedSpeakers.push(char);
+                break;
+              }
+            }
+          }
+          
+          // Логируем если исключили спикера
+          if (excludedSpeakers.length > 0 && sceneIndex < 5) {
+            console.log(`   🚫 Third-person exclusion: ${excludedSpeakers.join(', ')} (from speech)`);
+          }
+          
+          // ═══════════════════════════════════════════════════════════════
+          // ПРАВИЛО 1: Gemini видит спикера?
+          // ═══════════════════════════════════════════════════════════════
           let speaker: string | null = null;
           
           // Извлекаем имя из диалога Gemini (формат: "ИМЯ\nтекст" или "ИМЯ ЗК\nтекст")
           const speakerMatch = geminiDialogues.match(/^([А-ЯЁA-Z][А-ЯЁа-яёA-Za-z]{1,15})(?:\s*ЗК|\s*ГЗ)?[\n\r]/);
           if (speakerMatch) {
             const candidateName = speakerMatch[1].trim().toUpperCase();
-            // Проверяем: это персонаж из сценария?
-            if (knownCharacters.some(c => c.toUpperCase() === candidateName)) {
+            // Проверяем: это персонаж из сценария и НЕ исключён?
+            if (knownCharacters.some(c => c.toUpperCase() === candidateName) && 
+                !excludedSpeakers.includes(candidateName)) {
               speaker = candidateName;
             }
           }
           
-          // Альтернатива: "Имя говорит/отвечает" в описании
+          // Альтернатива: "Имя говорит/отвечает" в описании (расширенные паттерны)
           if (!speaker) {
+            // Паттерны активного говорения
+            const speakingPatterns = [
+              'говорит', 'отвечает', 'спрашивает', 'рассказывает', 'объясняет',
+              'кричит', 'шепчет', 'обращается', 'жалуется', 'возмущается',
+              'в кадре, говорит', 'говорит в кадре', 'в кадре говорит'
+            ];
+            const patternStr = speakingPatterns.join('|');
+            
             for (const char of knownCharacters) {
-              const pattern = new RegExp(`\\b${char}\\b[^.]*?(говорит|отвечает|спрашивает)`, 'i');
-              if (pattern.test(description)) {
+              // Пропускаем исключённых
+              if (excludedSpeakers.includes(char)) continue;
+              
+              // "Тома говорит" или "Тома в кадре, говорит"
+              const pattern1 = new RegExp(`\\b${char}\\b[^.]{0,30}?(${patternStr})`, 'i');
+              // "говорит Тома" (обратный порядок)
+              const pattern2 = new RegExp(`(${patternStr})[^.]{0,10}?\\b${char}\\b`, 'i');
+              
+              if (pattern1.test(description) || pattern2.test(description)) {
                 speaker = char;
                 break;
               }
             }
           }
           
-          // Единственный персонаж в сцене?
+          // Если в описании есть "идет по салону" + имя → это не обязательно говорящий
+          // Но если персонаж ЕДИНСТВЕННЫЙ в сцене, он скорее всего говорит
           if (!speaker) {
+            // Исключаем тех, о ком говорят в третьем лице
             const charsInScene = knownCharacters.filter(c => 
-              new RegExp(`\\b${c}\\b`, 'i').test(description)
+              new RegExp(`\\b${c}\\b`, 'i').test(description) &&
+              !excludedSpeakers.includes(c)
             );
+            
+            // Если 1 персонаж — он и говорит
             if (charsInScene.length === 1) {
               speaker = charsInScene[0];
+            }
+            // Если 2+ персонажа — ищем того, кто "активен" (говорит, отвечает)
+            else if (charsInScene.length > 1) {
+              for (const char of charsInScene) {
+                // Персонаж с активным глаголом
+                if (/\bговорит|\bотвечает|\bспрашивает/i.test(description.split(char)[1] || '')) {
+                  speaker = char;
+                  break;
+                }
+              }
+              // Если никто не "говорит" явно — берём первого упомянутого
+              if (!speaker) {
+                speaker = charsInScene[0];
+              }
             }
           }
           
@@ -1060,6 +1170,20 @@ export async function POST(request: NextRequest) {
           if (speaker) {
             const shortForm = FULL_TO_SHORT[speaker];
             if (shortForm) speaker = shortForm;
+          }
+          
+          // ═══════════════════════════════════════════════════════════════
+          // ПРАВИЛО 1.5: Первая сцена чанка — особый случай
+          // ═══════════════════════════════════════════════════════════════
+          if (!speaker && sceneIndex === 0) {
+            // В первой сцене чанка нет lastSpeaker — ищем персонажа в описании
+            const firstSceneChar = knownCharacters.find(c => 
+              new RegExp(`\\b${c}\\b`, 'i').test(description)
+            );
+            if (firstSceneChar) {
+              speaker = firstSceneChar;
+              console.log(`   🎬 First scene speaker: ${speaker} (from description)`);
+            }
           }
           
           // ═══════════════════════════════════════════════════════════════
@@ -1085,24 +1209,60 @@ export async function POST(request: NextRequest) {
           }
           
           // ═══════════════════════════════════════════════════════════════
-          // ПРАВИЛО 3: Fallback → НЕИЗВЕСТНЫЙ
+          // ПРАВИЛО 3: Fallback — доверяем Gemini, минимум догадок
+          // (excludedSpeakers уже рассчитан выше)
           // ═══════════════════════════════════════════════════════════════
           if (!speaker) {
-            // Последняя попытка: любой персонаж в сцене
+            // Попытка 3a: персонаж упомянут в описании (Gemini его видит)
+            // НО исключаем тех, о ком говорят в третьем лице!
             const anyChar = knownCharacters.find(c => 
-              new RegExp(`\\b${c}\\b`, 'i').test(description)
+              new RegExp(`\\b${c}\\b`, 'i').test(description) &&
+              !excludedSpeakers.includes(c)
             );
             if (anyChar) {
               speaker = anyChar;
-            } else if (lastSpeaker) {
-              // Наследуем с ЗК
+            }
+            
+            // Попытка 3b: наследуем от предыдущей сцены
+            if (!speaker && lastSpeaker) {
               const cleanLast = lastSpeaker.replace(/\s*ЗК\s*/g, '').trim();
-              speaker = `${cleanLast} ЗК`;
-            } else {
+              // Проверяем что lastSpeaker не упомянут в третьем лице
+              if (!excludedSpeakers.includes(cleanLast)) {
+                speaker = `${cleanLast} ЗК`;
+              }
+            }
+            
+            // Попытка 3c: персонаж в описании (даже если говорит О другом)
+            if (!speaker) {
+              const anyCharInDesc = knownCharacters.find(c => 
+                new RegExp(`\\b${c}\\b`, 'i').test(description)
+              );
+              if (anyCharInDesc) {
+                speaker = anyCharInDesc;
+              }
+            }
+            
+            // Попытка 3d: берём главного персонажа по количеству реплик
+            // НО исключаем того, о ком говорят!
+            if (!speaker && scriptData?.characters?.length > 0) {
+              // Сортируем по количеству реплик
+              const sorted = [...scriptData.characters]
+                .filter(c => !excludedSpeakers.includes(c.name?.toUpperCase() || ''))
+                .sort((a, b) => (b.dialogueCount || 0) - (a.dialogueCount || 0));
+              // Берём персонажа с наибольшим количеством реплик
+              if (sorted[0]?.name) {
+                speaker = sorted[0].name.toUpperCase();
+                console.log(`   📊 Fallback to top speaker: ${speaker} (${sorted[0].dialogueCount} lines)`);
+              }
+            }
+            
+            // Крайний fallback — НЕИЗВЕСТНЫЙ (но теперь это редкость)
+            if (!speaker) {
               speaker = 'НЕИЗВЕСТНЫЙ';
               console.log(`   ⚠️ Unknown speaker at ${scene.start_timecode}`);
             }
           }
+          
           
           // Запоминаем спикера (без ЗК) для следующих сцен
           lastSpeaker = speaker.replace(/\s*ЗК\s*/g, '').trim();
