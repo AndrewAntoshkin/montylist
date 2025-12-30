@@ -134,10 +134,10 @@ export default function AboutClient({ user, profile }: AboutClientProps) {
                   </div>
                   <div className="flex-1 flex flex-col gap-3">
                     <p className="font-jost font-semibold text-[18px] leading-[26px] text-white">
-                      Загрузите видео
+                      Загрузите сценарий и видео
                     </p>
                     <p className="font-jost font-normal text-[16px] leading-[24px] text-[#d3d3d3]">
-                      Просто перетащите ваш видеофайл в окно загрузки или выберите файл на компьютере. Поддерживаются все популярные форматы: MP4, MOV, AVI и другие.
+                      Просто перетащите ваш видеофайл в окно загрузки или выберите файл на компьютере. Поддерживаются форматы: MP4, MOV, AVI. Максимальный размер — 500 МБ.
                     </p>
                   </div>
                 </div>

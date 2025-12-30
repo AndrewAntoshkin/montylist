@@ -221,7 +221,7 @@ export default function HomeClient({ user, recentVideos = [], filmMetadata }: Ho
               Монтажные листы за минуты
             </h1>
             <p className="text-base font-normal leading-6">
-              Загрузите видео и получите монтажный лист
+              Загрузите сценарий и видео — получите монтажный лист
             </p>
           </div>
 
@@ -300,13 +300,13 @@ export default function HomeClient({ user, recentVideos = [], filmMetadata }: Ho
           </p>
           
           <div className="flex gap-8 items-center w-full">
-            {/* Step 1 - Загрузите видео */}
+            {/* Step 1 - Загрузите сценарий и видео */}
             <div className="flex-1">
               <div className="bg-[#191919] flex flex-col gap-6 p-8 rounded-[44px] h-full items-center justify-center">
                 <div className="bg-[#101010] flex flex-col gap-2 items-center justify-center px-8 py-12 rounded-[24px] w-full h-[244px]">
                   <Image
                     src="/step-1.png"
-                    alt="Загрузите видео"
+                    alt="Загрузите сценарий и видео"
                     width={381}
                     height={244}
                     className="object-contain h-full"
@@ -319,11 +319,11 @@ export default function HomeClient({ user, recentVideos = [], filmMetadata }: Ho
                     </p>
                     <div className="flex gap-2 items-center w-full">
                       <p className="font-semibold text-[16px] leading-[1.2] text-white whitespace-nowrap">
-                        Загрузите видео
+                        Загрузите сценарий и видео
                       </p>
                     </div>
                     <div className="flex flex-col font-medium text-[14px] text-[#909090] w-full">
-                      <p className="leading-5">Просто перетащите ваш видеофайл в окно загрузки или выберите файл на компьютере. Поддерживаются все популярные форматы: MP4, MOV, AVI и другие.</p>
+                      <p className="leading-5">Просто перетащите ваш видеофайл в окно загрузки или выберите файл на компьютере. Поддерживаются форматы: MP4, MOV, AVI. Максимальный размер — 500 МБ.</p>
                     </div>
                   </div>
                 </div>
