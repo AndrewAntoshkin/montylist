@@ -714,7 +714,7 @@ export async function POST(request: NextRequest) {
         }
         
         // Для каждой PySceneDetect сцены ищем соответствующую AI сцену
-        finalScenes = sceneBoundaries.map((b) => {
+        const mappedScenes = sceneBoundaries.map((b): ParsedScene | null => {
           // Точное совпадение по start_timecode
           let aiScene = aiSceneMap.get(b.start_timecode);
           
@@ -791,7 +791,7 @@ export async function POST(request: NextRequest) {
         });
         
         // Фильтруем null (сцены внутри объединённых планов) и добавляем объединённые планы
-        const filteredScenes = finalScenes.filter((s): s is NonNullable<typeof s> => s !== null);
+        const filteredScenes = mappedScenes.filter((s): s is ParsedScene => s !== null);
         
         // Добавляем объединённые планы Gemini (заставки и т.д.) которые покрывают несколько сцен
         const mergedPlans = parsedScenes.filter(p => {
