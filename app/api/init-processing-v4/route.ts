@@ -266,15 +266,16 @@ export async function POST(request: NextRequest) {
     
     tempFiles.push(...chunkFiles.map(c => c.localPath));
     
-    // Upload chunks in parallel (4 at a time for speed)
-    console.log(`\n☁️  Uploading ${chunkFiles.length} chunks (parallel)...`);
+    // Upload chunks in parallel (2 at a time - Supabase rate limit friendly)
+    console.log(`\n☁️  Uploading ${chunkFiles.length} chunks (parallel x2)...`);
     
-    const PARALLEL_UPLOADS = 4;
+    const PARALLEL_UPLOADS = 2;
     const uploadChunk = async (chunkFile: { chunkIndex: number; localPath: string }) => {
       const chunkStoragePath = `${video.user_id}/chunks-v4/chunk_${chunkFile.chunkIndex}_${Date.now()}.mp4`;
       
       const stats = fs.statSync(chunkFile.localPath);
-      console.log(`📦 Chunk ${chunkFile.chunkIndex}: ${(stats.size / (1024 * 1024)).toFixed(2)} MB`);
+      const sizeMB = (stats.size / (1024 * 1024)).toFixed(2);
+      console.log(`📦 Chunk ${chunkFile.chunkIndex}: ${sizeMB} MB`);
 
       // Upload with retry
       const MAX_ATTEMPTS = 3;
@@ -290,7 +291,7 @@ export async function POST(request: NextRequest) {
             });
 
           if (!uploadError) {
-            console.log(`✅ Chunk ${chunkFile.chunkIndex} uploaded`);
+            console.log(`✅ Chunk ${chunkFile.chunkIndex} uploaded (${sizeMB} MB)`);
             break;
           }
 
@@ -299,12 +300,14 @@ export async function POST(request: NextRequest) {
             break;
           }
 
+          console.log(`⚠️ Chunk ${chunkFile.chunkIndex} attempt ${attempt} failed: ${uploadError.message}`);
           if (attempt === MAX_ATTEMPTS) {
             throw new Error(`Upload failed: ${uploadError.message}`);
           }
         } catch (err) {
+          console.log(`❌ Chunk ${chunkFile.chunkIndex} error attempt ${attempt}: ${err}`);
           if (attempt === MAX_ATTEMPTS) throw err;
-          await new Promise(res => setTimeout(res, 1000 * attempt));
+          await new Promise(res => setTimeout(res, 2000 * attempt));
         }
       }
 
@@ -319,6 +322,7 @@ export async function POST(request: NextRequest) {
     // Process in batches of PARALLEL_UPLOADS
     for (let i = 0; i < chunkFiles.length; i += PARALLEL_UPLOADS) {
       const batch = chunkFiles.slice(i, i + PARALLEL_UPLOADS);
+      console.log(`📤 Batch ${Math.floor(i/PARALLEL_UPLOADS) + 1}/${Math.ceil(chunkFiles.length/PARALLEL_UPLOADS)}: chunks ${batch.map(c => c.chunkIndex).join(', ')}`);
       await Promise.all(batch.map(uploadChunk));
     }
 
