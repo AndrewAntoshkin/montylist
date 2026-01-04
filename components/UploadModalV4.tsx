@@ -189,7 +189,7 @@ export default function UploadModalV4({
     }
 
     const fileSizeMB = file.size / (1024 * 1024);
-    const USE_TUS_THRESHOLD_MB = 100; // Используем TUS только для файлов >100MB
+    const USE_TUS_THRESHOLD_MB = 300; // XHR быстрее — используем для файлов до 300MB
 
     console.log('🚀 V4: Starting upload:', file.name, 'Duration:', videoDuration, 'Size:', fileSizeMB.toFixed(2), 'MB');
 
@@ -282,7 +282,7 @@ export default function UploadModalV4({
               contentType: file.type || 'video/mp4',
               cacheControl: '3600',
             },
-            chunkSize: 6 * 1024 * 1024,
+            chunkSize: 20 * 1024 * 1024, // Большие чанки = меньше запросов = быстрее
             onError: reject,
             onProgress: (bytesUploaded, bytesTotal) => {
               setProgress(Math.round((bytesUploaded / bytesTotal) * 100));
