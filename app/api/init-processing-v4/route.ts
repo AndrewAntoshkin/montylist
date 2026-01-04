@@ -266,27 +266,27 @@ export async function POST(request: NextRequest) {
     
     tempFiles.push(...chunkFiles.map(c => c.localPath));
     
-    // Upload chunks
-    console.log(`\n☁️  Uploading ${chunkFiles.length} chunks...`);
+    // Upload chunks in parallel (4 at a time for speed)
+    console.log(`\n☁️  Uploading ${chunkFiles.length} chunks (parallel)...`);
     
-    for (const chunkFile of chunkFiles) {
+    const PARALLEL_UPLOADS = 4;
+    const uploadChunk = async (chunkFile: { chunkIndex: number; localPath: string }) => {
       const chunkStoragePath = `${video.user_id}/chunks-v4/chunk_${chunkFile.chunkIndex}_${Date.now()}.mp4`;
       
       const stats = fs.statSync(chunkFile.localPath);
       console.log(`📦 Chunk ${chunkFile.chunkIndex}: ${(stats.size / (1024 * 1024)).toFixed(2)} MB`);
 
       // Upload with retry
-      const MAX_ATTEMPTS = 5;
+      const MAX_ATTEMPTS = 3;
       for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
         try {
-          const currentStream = fs.createReadStream(chunkFile.localPath);
+          const fileBuffer = fs.readFileSync(chunkFile.localPath);
           
           const { error: uploadError } = await supabase.storage
             .from('videos')
-            .upload(chunkStoragePath, currentStream, {
+            .upload(chunkStoragePath, fileBuffer, {
               contentType: 'video/mp4',
               upsert: true,
-              duplex: 'half',
             });
 
           if (!uploadError) {
@@ -304,33 +304,22 @@ export async function POST(request: NextRequest) {
           }
         } catch (err) {
           if (attempt === MAX_ATTEMPTS) throw err;
-          const delay = 2000 * Math.pow(2, attempt - 1);
-          console.log(`⏳ Retry in ${delay}ms...`);
-          await new Promise(res => setTimeout(res, delay));
+          await new Promise(res => setTimeout(res, 1000 * attempt));
         }
       }
 
-      // Get URL
-      let storageUrl: string = '';
-      const { data: publicUrlData } = supabase.storage
+      // Get signed URL directly (faster than checking public URL)
+      const { data: signedUrlData } = await supabase.storage
         .from('videos')
-        .getPublicUrl(chunkStoragePath);
+        .createSignedUrl(chunkStoragePath, 60 * 60 * 24 * 7);
       
-      try {
-        const testResponse = await fetch(publicUrlData.publicUrl, { method: 'HEAD' });
-        if (testResponse.ok) {
-          storageUrl = publicUrlData.publicUrl;
-        }
-      } catch {}
-      
-      if (!storageUrl) {
-        const { data: signedUrlData } = await supabase.storage
-          .from('videos')
-          .createSignedUrl(chunkStoragePath, 60 * 60 * 24 * 7);
-        storageUrl = signedUrlData?.signedUrl || '';
-      }
+      chunkProgress.chunks[chunkFile.chunkIndex].storageUrl = signedUrlData?.signedUrl || '';
+    };
 
-      chunkProgress.chunks[chunkFile.chunkIndex].storageUrl = storageUrl;
+    // Process in batches of PARALLEL_UPLOADS
+    for (let i = 0; i < chunkFiles.length; i += PARALLEL_UPLOADS) {
+      const batch = chunkFiles.slice(i, i + PARALLEL_UPLOADS);
+      await Promise.all(batch.map(uploadChunk));
     }
 
     // Save progress
@@ -390,4 +379,5 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
 
