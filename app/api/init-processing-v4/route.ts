@@ -28,6 +28,10 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: NextRequest) {
   const tempFiles: string[] = [];
   
+  // Save baseUrl early (before long processing makes headers stale)
+  const savedBaseUrl = process.env.NEXT_PUBLIC_SITE_URL || 
+    `${request.headers.get('x-forwarded-proto') || 'http'}://${request.headers.get('host')}`;
+  
   try {
     const { videoId, videoUrl, videoDuration, filmMetadata, scriptData } = await request.json();
 
@@ -339,11 +343,12 @@ export async function POST(request: NextRequest) {
     console.log(`\n✅ V4 INIT COMPLETE. Ready to process ${chunks.length} chunks with PySceneDetect data`);
 
     // Trigger background processing (V4 endpoint!)
-    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || `${request.headers.get('x-forwarded-proto') || 'http'}://${request.headers.get('host')}`;
+    // Use saved baseUrl from start of request (headers may be stale after 7+ min processing)
+    const triggerUrl = savedBaseUrl || process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
     
-    console.log(`🚀 Triggering V4 processing for ${videoId}`);
+    console.log(`🚀 Triggering V4 processing for ${videoId} via ${triggerUrl}`);
     
-    fetch(`${baseUrl}/api/process-all-chunks-v4`, {
+    fetch(`${triggerUrl}/api/process-all-chunks-v4`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ videoId }),
