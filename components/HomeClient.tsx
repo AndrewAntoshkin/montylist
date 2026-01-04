@@ -38,8 +38,8 @@ export default function HomeClient({ user, recentVideos = [], filmMetadata }: Ho
     switch (status) {
       case 'completed':
         return (
-          <div className="border border-[#3c6f06] px-2.5 py-1 rounded-lg h-6 flex items-center justify-center">
-            <span className="text-xs font-medium text-[#3c6f06] leading-none">
+          <div className="border border-[#639E59] px-2.5 py-1 rounded-lg h-6 flex items-center justify-center">
+            <span className="text-[10px] font-medium text-white uppercase leading-none tracking-wide">
               Загружен
             </span>
           </div>
@@ -47,24 +47,24 @@ export default function HomeClient({ user, recentVideos = [], filmMetadata }: Ho
       case 'processing':
       case 'uploading':
         return (
-          <div className="border border-[#705d00] px-2.5 py-1 rounded-lg h-6 flex items-center justify-center">
-            <span className="text-xs font-medium text-[#705d00] leading-none">
+          <div className="border border-[#B8860B] px-2.5 py-1 rounded-lg h-6 flex items-center justify-center">
+            <span className="text-[10px] font-medium text-white uppercase leading-none tracking-wide">
               {status === 'uploading' ? 'Загрузка' : 'Обработка'}
             </span>
           </div>
         );
       case 'error':
         return (
-          <div className="border border-[#6f0606] px-2.5 py-1 rounded-lg h-6 flex items-center justify-center">
-            <span className="text-xs font-medium text-[#6f0606] leading-none">
+          <div className="border border-[#B22222] px-2.5 py-1 rounded-lg h-6 flex items-center justify-center">
+            <span className="text-[10px] font-medium text-white uppercase leading-none tracking-wide">
               Ошибка
             </span>
           </div>
         );
       default:
         return (
-          <div className="border border-[#3c6f06] px-2.5 py-1 rounded-lg h-6 flex items-center justify-center">
-            <span className="text-xs font-medium text-[#3c6f06] leading-none">
+          <div className="border border-[#639E59] px-2.5 py-1 rounded-lg h-6 flex items-center justify-center">
+            <span className="text-[10px] font-medium text-white uppercase leading-none tracking-wide">
               Загружен
             </span>
           </div>
@@ -82,7 +82,6 @@ export default function HomeClient({ user, recentVideos = [], filmMetadata }: Ho
     e.stopPropagation();
 
     try {
-      // Download DOCX file from API
       const response = await fetch(`/api/export-doc/${videoId}`);
       
       if (!response.ok) {
@@ -130,7 +129,6 @@ export default function HomeClient({ user, recentVideos = [], filmMetadata }: Ho
     }
   };
 
-  // Render video card with gradient border for processing status
   const renderVideoCard = (video: Video) => {
     const isProcessing = video.status === 'processing' || video.status === 'uploading';
     
@@ -212,72 +210,75 @@ export default function HomeClient({ user, recentVideos = [], filmMetadata }: Ho
 
   return (
     <div className="flex-1">
-      <div className="max-w-[1400px] mx-auto px-8 py-6 flex flex-col gap-10">
+      <div className="max-w-[1400px] mx-auto px-8 flex flex-col gap-10">
         
         {/* Hero Section */}
-        <div className="flex flex-col items-center gap-8 pt-20 pb-10 max-w-[880px] mx-auto w-full">
-          <div className="flex flex-col gap-2 text-center text-white w-full">
-            <h1 className="text-[28px] font-semibold leading-[36px]">
-              Монтажные листы за минуты
-            </h1>
-            <p className="text-base font-normal leading-6">
-              Загрузите сценарий и видео — получите монтажный лист
+        <div className="flex flex-col items-center gap-12 py-[120px] max-w-[878px] mx-auto w-full">
+          {/* Hero Head */}
+          <div className="flex flex-col items-center gap-7 w-full">
+            {/* Logo Icon + Title */}
+            <div className="flex flex-col items-center gap-2">
+              {/* Monty Logo Icon */}
+              <div className="pt-[1.85px]">
+                <Image 
+                  src="/monty-logo.svg" 
+                  alt="Monty" 
+                  width={76} 
+                  height={21}
+                  className="text-white"
+                />
+              </div>
+              
+              {/* Main Heading */}
+              <h1 className="text-[64px] font-medium leading-[1.15625] tracking-[-0.01em] text-center text-white max-w-[675px]">
+                Создавайте монтажные листы
+                <br />
+                за минуты
+              </h1>
+            </div>
+            
+            {/* Subtitle */}
+            <p className="text-base font-normal leading-7 tracking-[-0.018em] text-center text-white/60 max-w-[736px]">
+              Загрузите видео и сценарий — искусственный интеллект автоматически создаст подробный монтажный лист с таймкодами, описанием сцен и типами планов. Экономьте часы работы и получайте профессиональный результат за считанные минуты.
             </p>
           </div>
 
-          {/* Upload Area */}
-          <div className="flex flex-col gap-4 items-center w-full">
+          {/* CTA Button */}
+          <div className="flex flex-col items-center gap-2">
             <button
               onClick={() => setShowUploadModal(true)}
-              className="bg-[#181818] border-2 border-dashed border-[#535353] rounded-3xl w-[600px] px-2 py-12 flex flex-col items-center gap-4 hover:border-[#666] transition-colors cursor-pointer overflow-hidden"
+              className="bg-[#F5F5F5] hover:bg-white px-4 py-2.5 rounded-lg h-[42px] flex items-center justify-center transition-colors"
             >
-              <div className="w-10 h-10">
-                <svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M33.3333 26.6667V30C33.3333 31.7681 31.8682 33.3333 30 33.3333H10C8.13192 33.3333 6.66667 31.7681 6.66667 30V26.6667M26.6667 13.3333L20 6.66667M20 6.66667L13.3333 13.3333M20 6.66667V26.6667" stroke="#A4A4A4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              </div>
-              <p className="text-sm font-normal leading-5 text-[#a4a4a4] text-center whitespace-pre-wrap">
-                Перетащите в область файл или загрузите с устройства
-              </p>
-              <div className="bg-neutral-100 px-4 py-2.5 rounded-lg h-[42px] flex items-center justify-center">
-                <span className="text-sm font-medium text-black tracking-[-0.3962px]">
-                  Выбрать на устройстве
-                </span>
-              </div>
+              <span className="text-sm font-medium text-black tracking-[-0.03em]">
+                Создать новый лист
+              </span>
             </button>
-
-            <div className="flex flex-col gap-2 text-center w-full">
-              <p className="text-sm font-medium leading-5 text-[lightgrey]">
-                Поддерживаемые форматы: MP4, MOV, AVI
-              </p>
-              <p className="text-xs font-normal leading-[18px] text-[#a4a4a4]">
-                На выходе получите файл готовый по ГОСТУ для Архива кино
-              </p>
-            </div>
           </div>
         </div>
 
         {/* Recent Files Section */}
         {recentVideos && recentVideos.length > 0 && (
-          <div className="flex flex-col gap-4 w-full">
+          <div className="flex flex-col items-center gap-4 w-full">
             <div className="flex flex-col gap-2 w-full">
               <p className="text-xs font-medium leading-5 text-[#656565] uppercase">
                 Недавние файлы
               </p>
               
-              {/* Grid with videos */}
-              <div className="flex flex-col gap-5">
+              {/* Grid with videos - 4 columns */}
+              <div className="flex flex-col gap-8">
                 {/* Row 1 */}
-                <div className="grid grid-cols-3 gap-5 w-full">
-                  {recentVideos.slice(0, 3).map((video) => renderVideoCard(video))}
-                </div>
-                
-                {/* Row 2 */}
-                {recentVideos.length > 3 && (
-                  <div className="grid grid-cols-3 gap-5 w-full">
-                    {recentVideos.slice(3, 6).map((video) => renderVideoCard(video))}
+                <div className="flex flex-col gap-5">
+                  <div className="grid grid-cols-4 gap-5 w-full">
+                    {recentVideos.slice(0, 4).map((video) => renderVideoCard(video))}
                   </div>
-                )}
+                  
+                  {/* Row 2 */}
+                  {recentVideos.length > 4 && (
+                    <div className="grid grid-cols-4 gap-5 w-full">
+                      {recentVideos.slice(4, 8).map((video) => renderVideoCard(video))}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -294,103 +295,170 @@ export default function HomeClient({ user, recentVideos = [], filmMetadata }: Ho
         )}
 
         {/* How It Works Section */}
-        <div className="flex flex-col gap-6 items-center py-16 w-full">
-          <p className="font-semibold text-[24px] leading-[1.2] text-center text-white w-full">
+        <div className="flex flex-col gap-8 items-center py-16 w-full">
+          <h2 className="font-semibold text-[32px] leading-[1.2] text-center text-white w-full">
             Как это работает?
-          </p>
+          </h2>
           
-          <div className="flex gap-8 items-center w-full">
+          <div className="grid grid-cols-3 gap-6 w-full">
             {/* Step 1 - Загрузите сценарий и видео */}
-            <div className="flex-1">
-              <div className="bg-[#191919] flex flex-col gap-6 p-8 rounded-[44px] h-full items-center justify-center">
-                <div className="bg-[#101010] flex flex-col gap-2 items-center justify-center px-8 py-12 rounded-[24px] w-full h-[244px]">
-                  <Image
-                    src="/step-1.png"
-                    alt="Загрузите сценарий и видео"
-                    width={381}
-                    height={244}
-                    className="object-contain h-full"
-                  />
-                </div>
-                <div className="flex flex-col gap-5 w-full">
-                  <div className="flex flex-col gap-2 w-full">
-                    <p className="font-medium text-[12px] leading-5 text-[#656565] uppercase">
-                      Шаг 1
+            <div className="flex flex-col">
+              {/* Image Area */}
+              <div className="bg-[#181818] rounded-t-[24px] flex items-center justify-center px-8 py-12 gap-4 h-[216px]">
+                <Image
+                  src="/file-doc.svg"
+                  alt="DOC файл"
+                  width={90}
+                  height={120}
+                  className="object-contain"
+                />
+                <Image
+                  src="/file-video.svg"
+                  alt="Video файл"
+                  width={90}
+                  height={120}
+                  className="object-contain"
+                />
+              </div>
+              
+              {/* Text Content */}
+              <div className="flex flex-col gap-5 p-4">
+                <div className="flex flex-col gap-2">
+                  <p className="font-medium text-xs leading-5 text-[#656565] uppercase">
+                    Шаг 1
+                  </p>
+                  <p className="font-semibold text-xl leading-[1.2] text-white">
+                    Загрузите сценарий и видео
+                  </p>
+                  <p className="font-medium text-sm leading-5 text-[#BDBDBD]">
+                    Просто перетащите ваш видеофайл в окно загрузки или выберите файл на компьютере. Поддерживаются все популярные форматы: MP4, MOV, AVI и другие.
+                  </p>
+                  <div className="flex flex-col gap-1 mt-2">
+                    <p className="text-xs leading-[1.17] text-[#626262]">
+                      Формат для сценария .DOC, DOCX
                     </p>
-                    <div className="flex gap-2 items-center w-full">
-                      <p className="font-semibold text-[16px] leading-[1.2] text-white whitespace-nowrap">
-                        Загрузите сценарий и видео
-                      </p>
-                    </div>
-                    <div className="flex flex-col font-medium text-[14px] text-[#909090] w-full">
-                      <p className="leading-5">Просто перетащите ваш видеофайл в окно загрузки или выберите файл на компьютере. Поддерживаются форматы: MP4, MOV, AVI. Максимальный размер — 500 МБ.</p>
-                    </div>
+                    <p className="text-xs leading-[1.17] text-[#626262]">
+                      Максимальный размер видео 500mb
+                    </p>
                   </div>
                 </div>
               </div>
             </div>
 
             {/* Step 2 - Дождитесь обработки */}
-            <div className="flex-1">
-              <div className="bg-[#191919] flex flex-col gap-6 h-full items-center justify-center p-8 rounded-[44px]">
-                <div className="bg-[#101010] flex gap-1 h-[244px] items-center justify-center px-8 py-12 rounded-[24px] w-full">
-                  <Image
-                    src="/step-2.png"
-                    alt="Дождитесь обработки"
-                    width={381}
-                    height={244}
-                    className="object-contain h-full"
-                  />
+            <div className="flex flex-col">
+              {/* Image Area */}
+              <div className="bg-[#181818] rounded-t-[24px] flex items-center justify-center px-8 py-12 gap-2 h-[216px]">
+                {/* Processing animation mockup */}
+                <div className="relative w-[120px] h-[129px]">
+                  <div className="absolute inset-0 bg-[#2E2E2E] rounded-xl"></div>
+                  <div className="absolute left-[10px] top-[12px] right-[10px] h-[69px] bg-[#101010] rounded-lg"></div>
+                  <div className="absolute left-[24px] top-[24px] w-[72px] h-[45px] rounded overflow-hidden flex">
+                    <div className="w-1/2 h-full bg-gradient-to-r from-[#7796E9] to-[#7796E9]/50"></div>
+                    <div className="w-1/2 h-full bg-white/20"></div>
+                  </div>
+                  <div className="absolute left-[58px] top-[20px] w-1 h-[53px] bg-[#7796E9] rounded-sm shadow-[0_0_4px_rgba(0,0,0,1)]"></div>
+                  <p className="absolute left-[12px] bottom-[16px] text-xs font-semibold text-white">Movie.mp4</p>
                 </div>
-                <div className="flex flex-col gap-5 w-full">
-                  <div className="flex flex-col gap-2 w-full">
-                    <p className="font-medium text-[12px] leading-5 text-[#656565] uppercase">
-                      Шаг 2
+                
+                {/* Arrow dots */}
+                <div className="flex items-center gap-0.5 mx-2">
+                  <div className="w-6 h-0.5 bg-gradient-to-r from-transparent to-[#7796E9]"></div>
+                </div>
+                
+                {/* Document result */}
+                <div className="relative w-[120px] h-[129px]">
+                  <div className="absolute inset-0 bg-[#2E2E2E] rounded-xl"></div>
+                  <p className="absolute left-[12px] top-[12px] text-xs font-semibold text-white">Лист</p>
+                  <div className="absolute left-[12px] top-[33px] right-[12px] flex flex-col gap-[6px]">
+                    <div className="h-2 bg-[#4E4D4D] rounded-sm"></div>
+                    <div className="h-2 bg-[#4E4D4D] rounded-sm"></div>
+                    <div className="h-2 bg-[#4E4D4D] rounded-sm"></div>
+                    <div className="h-2 bg-[#4E4D4D] rounded-sm"></div>
+                    <div className="h-2 bg-[#4E4D4D] rounded-sm"></div>
+                    <div className="h-2 w-[56px] bg-[#4E4D4D] rounded-sm"></div>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Text Content */}
+              <div className="flex flex-col gap-5 p-4">
+                <div className="flex flex-col gap-2">
+                  <p className="font-medium text-xs leading-5 text-[#656565] uppercase">
+                    Шаг 2
+                  </p>
+                  <p className="font-semibold text-xl leading-[1.2] text-white">
+                    Дождитесь обработки
+                  </p>
+                  <p className="font-medium text-sm leading-5 text-[#BDBDBD]">
+                    Наша система анализирует видео, распознает сцены, действия, объекты и создает детальное описание каждого кадра. Процесс полностью автоматизирован.
+                  </p>
+                  <div className="flex flex-col gap-1 mt-2">
+                    <p className="text-xs leading-[1.17] text-[#626262]">
+                      В среднем обработка занимает около 30-40 минут
                     </p>
-                    <div className="flex gap-2 items-center w-full">
-                      <p className="font-semibold text-[16px] leading-[1.2] text-white whitespace-nowrap">
-                        Дождитесь обработки
-                      </p>
-                    </div>
-                    <div className="flex flex-col font-medium text-[14px] text-[#909090] w-full">
-                      <p className="leading-5">Наша система анализирует видео, распознает сцены, действия, объекты и создает детальное описание каждого кадра. Процесс полностью автоматизирован.</p>
-                    </div>
                   </div>
                 </div>
               </div>
             </div>
 
             {/* Step 3 - Скачайте лист */}
-            <div className="flex-1">
-              <div className="bg-[#191919] flex flex-col gap-6 h-full items-center justify-center p-8 rounded-[44px]">
-                <div className="bg-[#101010] flex gap-4 h-[244px] items-center justify-center px-8 py-12 rounded-[24px] w-full">
+            <div className="flex flex-col">
+              {/* Image Area */}
+              <div className="bg-[#181818] rounded-t-[24px] flex items-center justify-center px-8 py-12 gap-4 h-[216px]">
+                <div className="relative">
                   <Image
-                    src="/step-3.png"
-                    alt="Скачайте лист"
-                    width={381}
-                    height={244}
-                    className="object-contain h-full"
+                    src="/file-doc-glow.svg"
+                    alt="DOC файл"
+                    width={90}
+                    height={120}
+                    className="object-contain drop-shadow-[0_12px_32px_rgba(0,0,0,0.5)]"
                   />
                 </div>
-                <div className="flex flex-col gap-5 w-full">
-                  <div className="flex flex-col gap-2 w-full">
-                    <p className="font-medium text-[12px] leading-5 text-[#656565] uppercase">
-                      Шаг 3
+                
+                <Image
+                  src="/switch-horizontal.svg"
+                  alt="Switch"
+                  width={24}
+                  height={24}
+                  className="text-white"
+                />
+                
+                <Image
+                  src="/file-xls.svg"
+                  alt="XLS файл"
+                  width={90}
+                  height={120}
+                  className="object-contain"
+                />
+              </div>
+              
+              {/* Text Content */}
+              <div className="flex flex-col gap-5 p-4">
+                <div className="flex flex-col gap-2">
+                  <p className="font-medium text-xs leading-5 text-[#656565] uppercase">
+                    Шаг 3
+                  </p>
+                  <p className="font-semibold text-xl leading-[1.2] text-white">
+                    Скачайте лист
+                  </p>
+                  <p className="font-medium text-sm leading-5 text-[#BDBDBD]">
+                    Готовый монтажный лист автоматически формируется с тайм-кодами, описаниями кадров, типами планов и другими важными деталями. Вы можете экспортировать его в удобных форматах.
+                  </p>
+                  <div className="flex flex-col gap-1 mt-2">
+                    <p className="text-xs leading-[1.17] text-[#626262]">
+                      На выходе получите файл готовый по ГОСТУ для Архива кино
                     </p>
-                    <div className="flex gap-2 items-center w-full">
-                      <p className="font-semibold text-[16px] leading-[1.2] text-white whitespace-nowrap">
-                        Скачайте лист
-                      </p>
-                    </div>
-                    <div className="flex flex-col font-medium text-[14px] text-[#909090] w-full">
-                      <p className="leading-5">Готовый монтажный лист автоматически формируется с тайм-кодами, описаниями кадров, типами планов и другими важными деталями. Вы можете экспортировать его в удобных форматах.</p>
-                    </div>
+                    <p className="text-xs leading-[1.17] text-[#626262]">
+                      Доступные форматы для скачивания .DOCX, .XLS
+                    </p>
                   </div>
                 </div>
               </div>
             </div>
           </div>
         </div>
+
       </div>
 
       {/* Upload Modal */}

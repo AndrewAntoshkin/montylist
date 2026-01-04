@@ -1,39 +1,26 @@
-import Link from 'next/link';
+import Image from 'next/image';
 
 export default function Footer() {
   return (
-    <footer className="w-full bg-[#101010] border-t border-[#2e2e2e] mt-auto">
-      <div className="max-w-[1400px] mx-auto px-8 py-6">
-        <div className="flex items-center justify-between">
-          {/* Left side - Copyright */}
-          <div className="text-[#979797] text-sm">
-            © 2025 Monty. Все права защищены.
+    <footer className="w-full bg-[#101010] mt-auto">
+      <div className="max-w-[1400px] mx-auto px-8">
+        <div className="flex items-center justify-center gap-12 py-6">
+          {/* Logo */}
+          <div className="flex items-center gap-1">
+            <Image 
+              src="/monty-logo.svg" 
+              alt="Monty" 
+              width={82} 
+              height={24}
+            />
           </div>
-
-          {/* Right side - Links */}
-          <div className="flex items-center gap-6">
-            <Link
-              href="#"
-              className="text-[#979797] text-sm hover:text-white transition-colors"
-            >
-              Политика конфиденциальности
-            </Link>
-            <Link
-              href="#"
-              className="text-[#979797] text-sm hover:text-white transition-colors"
-            >
-              Условия использования
-            </Link>
-            <Link
-              href="#"
-              className="text-[#979797] text-sm hover:text-white transition-colors"
-            >
-              Поддержка
-            </Link>
-          </div>
+          
+          {/* Copyright */}
+          <p className="text-sm font-medium leading-[1.57] tracking-[-0.007em] text-[#5A5A5A]">
+            Monty @ 2025. Все права защищены
+          </p>
         </div>
       </div>
     </footer>
   );
 }
-

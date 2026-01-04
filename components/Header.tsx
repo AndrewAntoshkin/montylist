@@ -32,8 +32,8 @@ export default function Header({ user, profile }: HeaderProps = {}) {
   }, []);
 
   return (
-    <div className="sticky top-3 z-50 flex justify-center">
-      <div className={`h-[62px] rounded-[24px] w-[calc(100%-64px)] max-w-[1427px] px-6 py-5 flex items-center justify-between transition-colors duration-300 ${isScrolled ? 'bg-[#191919]' : 'bg-[#101010]'}`}>
+    <div className="sticky top-3 z-50 flex justify-center px-8">
+      <div className={`h-[62px] rounded-[24px] w-full max-w-[1427px] px-6 py-5 flex items-center justify-between transition-colors duration-300 ${isScrolled ? 'bg-[#191919]' : 'bg-[#191919]'}`}>
         {/* Logo */}
         <Link href="/" className="shrink-0">
           <Logo />
@@ -45,13 +45,13 @@ export default function Header({ user, profile }: HeaderProps = {}) {
           <div className="flex items-center gap-6">
             <Link
               href="/dashboard"
-              className="text-[#eaeaeb] text-sm font-medium tracking-[-0.098px] leading-[22px] hover:text-white transition-colors whitespace-nowrap"
+              className="text-[#EAEAEB] text-sm font-medium tracking-[-0.007em] leading-[22px] hover:text-white transition-colors whitespace-nowrap"
             >
               Листы
             </Link>
             <Link
               href="#"
-              className="text-[#eaeaeb] text-sm font-medium tracking-[-0.098px] leading-[22px] hover:text-white transition-colors whitespace-nowrap"
+              className="text-[#EAEAEB] text-sm font-medium tracking-[-0.007em] leading-[22px] hover:text-white transition-colors whitespace-nowrap"
             >
               Поддержка
             </Link>
