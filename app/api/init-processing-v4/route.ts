@@ -28,9 +28,10 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: NextRequest) {
   const tempFiles: string[] = [];
   
-  // Save baseUrl early (before long processing makes headers stale)
+  // Save baseUrl early - use request.url to get actual port
+  const requestUrl = new URL(request.url);
   const savedBaseUrl = process.env.NEXT_PUBLIC_SITE_URL || 
-    `${request.headers.get('x-forwarded-proto') || 'http'}://${request.headers.get('host')}`;
+    `${requestUrl.protocol}//${requestUrl.host}`;
   
   try {
     const { videoId, videoUrl, videoDuration, filmMetadata, scriptData } = await request.json();
