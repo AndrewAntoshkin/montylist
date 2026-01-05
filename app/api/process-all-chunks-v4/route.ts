@@ -29,9 +29,9 @@ export async function POST(request: NextRequest) {
     console.log(`🚀 V4 PROCESSING (PySceneDetect): Starting for video ${videoId}`);
     console.log(`${'═'.repeat(60)}`);
 
-    const host = request.headers.get('host') || 'localhost:3001';
-    const protocol = host.includes('localhost') ? 'http' : 'https';
-    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || `${protocol}://${host}`;
+    // Use request.url to get actual port
+    const requestUrl = new URL(request.url);
+    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || `${requestUrl.protocol}//${requestUrl.host}`;
     
     console.log(`🌐 Base URL: ${baseUrl}`);
 
