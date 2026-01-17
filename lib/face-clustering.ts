@@ -27,19 +27,31 @@ async function initFaceApi(): Promise<void> {
   if (initialized) return;
   
   // CRITICAL: Polyfill TextEncoder/TextDecoder BEFORE loading face-api
-  const util = await import('util');
-  if (typeof globalThis.TextEncoder === 'undefined') {
+  // Must be set on global AND globalThis for TensorFlow.js compatibility
+  const util = require('util');
+  
+  // Set on multiple global objects to ensure TensorFlow.js finds it
+  const polyfills = {
+    TextEncoder: util.TextEncoder,
+    TextDecoder: util.TextDecoder,
+  };
+  
+  // @ts-ignore - Apply to all possible global scopes
+  if (typeof global !== 'undefined') {
+    Object.assign(global, polyfills);
     // @ts-ignore
-    globalThis.TextEncoder = util.TextEncoder;
+    global.util = { ...polyfills };
   }
-  if (typeof globalThis.TextDecoder === 'undefined') {
-    // @ts-ignore
-    globalThis.TextDecoder = util.TextDecoder;
+  // @ts-ignore
+  if (typeof globalThis !== 'undefined') {
+    Object.assign(globalThis, polyfills);
   }
   
-  // Now dynamically import face-api and canvas
-  faceapi = await import('@vladmandic/face-api');
-  canvasModule = await import('canvas');
+  // Use require() instead of import() - CommonJS avoids some Turbopack issues
+  // @ts-ignore
+  faceapi = require('@vladmandic/face-api');
+  // @ts-ignore
+  canvasModule = require('canvas');
   
   // Patch faceapi для работы с node-canvas
   const { Canvas, Image, ImageData } = canvasModule;
