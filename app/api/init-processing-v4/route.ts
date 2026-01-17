@@ -18,8 +18,13 @@ import {
   pyScenesToPlanBoundaries 
 } from '@/lib/pyscenedetect';
 import { mergeCreditsScenes, type MergedScene } from '@/lib/credits-detector';
+import { smartMergeScenes } from '@/lib/smart-scene-merger';
+import { clusterFacesInVideo, cleanupFrames, type FaceCluster } from '@/lib/face-clustering';
 import path from 'path';
 import fs from 'fs';
+
+// Feature flag for Face Recognition
+const USE_FACE_RECOGNITION = process.env.USE_FACE_RECOGNITION === 'true';
 
 // 5 minutes timeout
 export const maxDuration = 300;
@@ -28,10 +33,9 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: NextRequest) {
   const tempFiles: string[] = [];
   
-  // Save baseUrl early - use request.url to get actual port
+  // Save baseUrl early - ALWAYS use request.url for correct port
   const requestUrl = new URL(request.url);
-  const savedBaseUrl = process.env.NEXT_PUBLIC_SITE_URL || 
-    `${requestUrl.protocol}//${requestUrl.host}`;
+  const savedBaseUrl = `${requestUrl.protocol}//${requestUrl.host}`;
   
   try {
     const { videoId, videoUrl, videoDuration, filmMetadata, scriptData } = await request.json();
@@ -168,6 +172,37 @@ export async function POST(request: NextRequest) {
       console.warn(`⚠️ Could not detect FPS, using default ${videoFPS}`);
     }
     
+    // ═══════════════════════════════════════════════════════════════
+    // 🎭 FACE RECOGNITION (optional)
+    // ═══════════════════════════════════════════════════════════════
+    let faceClusters: FaceCluster[] = [];
+    
+    if (USE_FACE_RECOGNITION) {
+      console.log(`\n🎭 FACE RECOGNITION enabled - starting face clustering...`);
+      
+      try {
+        const faceFramesDir = path.join(tempDir, 'face-frames');
+        
+        faceClusters = await clusterFacesInVideo(originalVideoPath, {
+          frameInterval: 5,        // Каждые 5 секунд
+          distanceThreshold: 0.5,  // Порог схожести
+          minAppearances: 5,       // Минимум 5 появлений
+          outputDir: faceFramesDir,
+        });
+        
+        console.log(`✅ Found ${faceClusters.length} unique characters`);
+        
+        // Cleanup face frames
+        cleanupFrames(faceFramesDir);
+        
+      } catch (faceError) {
+        console.error(`❌ Face recognition failed:`, faceError);
+        console.log(`   Continuing without face recognition...`);
+      }
+    } else {
+      console.log(`ℹ️  Face Recognition disabled (set USE_FACE_RECOGNITION=true to enable)`);
+    }
+    
     // Run PySceneDetect scene detection
     let detectedScenes: Array<{ timecode: string; timestamp: number }> = [];
     
@@ -179,12 +214,19 @@ export async function POST(request: NextRequest) {
         
         const rawScenes = await detectScenesWithPySceneDetect(originalVideoPath, { 
           fps: videoFPS,
-          adaptiveThreshold: 2.5,  // Пониженный порог — меньше пропущенных склеек
-          minSceneDuration: 0.4,   // Минимум 0.4 сек
+          adaptiveThreshold: 1.8,  // ⬇️ ПОНИЖЕН до 1.8 — максимальный захват сцен (меньше пропусков!)
+          minSceneDuration: 0.25,  // ⬇️ ПОНИЖЕН до 0.25 сек — ловим короткие планы
           maxScenes: 5000,
         });
         
-        detectedScenes = rawScenes.map(s => ({
+        // 🔀 SMART MERGING — убираем только микро-артефакты
+        console.log(`\n🔀 Applying smart scene merging...`);
+        const mergedScenes = smartMergeScenes(rawScenes, {
+          ultraShortThreshold: 0.3,  // <0.3 сек — точно артефакт (вспышка)
+          shortThreshold: 0.8,       // Не трогаем сцены >0.8 сек
+        });
+        
+        detectedScenes = mergedScenes.map(s => ({
           timecode: s.timecode,
           timestamp: s.timestamp,
         }));
@@ -256,6 +298,23 @@ export async function POST(request: NextRequest) {
     
     chunkProgress.detectedScenes = detectedScenes;
     chunkProgress.videoFPS = videoFPS;
+    
+    // Save face clusters (serialized for JSON storage)
+    if (faceClusters.length > 0) {
+      chunkProgress.faceClusters = faceClusters.map(cluster => ({
+        clusterId: cluster.clusterId,
+        appearances: cluster.appearances,
+        firstSeen: cluster.firstSeen,
+        lastSeen: cluster.lastSeen,
+        characterName: cluster.characterName || null,
+        // Store centroid as array for JSON serialization
+        centroid: Array.from(cluster.centroid),
+        // Store face timestamps for scene matching
+        faceTimestamps: cluster.faces.map(f => f.timestamp),
+      }));
+      chunkProgress.useFaceRecognition = true;
+      console.log(`📊 Saved ${faceClusters.length} face clusters to progress`);
+    }
     
     // Split video into chunks
     console.log(`\n✂️  Splitting into ${chunks.length} chunks...`);
@@ -344,12 +403,9 @@ export async function POST(request: NextRequest) {
     console.log(`\n✅ V4 INIT COMPLETE. Ready to process ${chunks.length} chunks with PySceneDetect data`);
 
     // Trigger background processing (V4 endpoint!)
-    // Use saved baseUrl from start of request (headers may be stale after 7+ min processing)
-    const triggerUrl = savedBaseUrl || process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+    console.log(`🚀 Triggering V4 processing for ${videoId} via ${savedBaseUrl}`);
     
-    console.log(`🚀 Triggering V4 processing for ${videoId} via ${triggerUrl}`);
-    
-    fetch(`${triggerUrl}/api/process-all-chunks-v4`, {
+    fetch(`${savedBaseUrl}/api/process-all-chunks-v4`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ videoId }),
@@ -364,6 +420,10 @@ export async function POST(request: NextRequest) {
       processingVersion: 'v4',
       sceneDetector: chunkProgress.sceneDetector,
       totalScenes: detectedScenes.length,
+      faceRecognition: {
+        enabled: USE_FACE_RECOGNITION,
+        clustersFound: faceClusters.length,
+      },
       chunks: chunkProgress.chunks.map((c: any) => ({
         index: c.index,
         startTimecode: c.startTimecode,

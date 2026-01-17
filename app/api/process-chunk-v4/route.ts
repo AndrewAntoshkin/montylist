@@ -19,6 +19,17 @@ import { createChunkPromptV4, formatCharactersForPromptV4, parseResponseV4 } fro
 import { transcribeAudioWithWords, extractAudioFromVideo, formatWordsForPlan, type WhisperWord } from '@/lib/whisper-transcription';
 import { existsSync, unlinkSync, writeFileSync, mkdirSync } from 'fs';
 import path from 'path';
+import { 
+  deserializeDiarization, 
+  calibrateSpeakerMapping, 
+  serializeDiarization,
+  mappingToRecord,
+  type VideoDiarizationData,
+  type DiarizedWordFull 
+} from '@/lib/full-audio-diarization';
+import { preCalibrateFromMentions, applyPreCalibration } from '@/lib/speaker-pre-calibration';
+import { determineSceneCharacters, type DiarizedWord } from '@/lib/face-speaker-binding';
+import { type FaceCluster } from '@/lib/face-clustering';
 // CharacterTracker убран — работаем только с персонажами из сценария
 
 const AI_MODEL = 'google/gemini-3-pro';
@@ -241,6 +252,76 @@ function cleanFakeSoundEffects(dialogues: string): string {
   }
   
   return cleaned;
+}
+
+function isPlaceholderDescription(description: string): boolean {
+  const trimmed = description.trim();
+  if (!trimmed) return true;
+  return /\bанализ сцены\b/i.test(trimmed) || /\bтребует описания\b/i.test(trimmed);
+}
+
+function extractSpeakerLines(dialogues: string): string[] {
+  const lines = dialogues.split('\n').map(line => line.trim()).filter(Boolean);
+  const speakers: string[] = [];
+  for (const line of lines) {
+    if (/^[А-ЯЁA-Z][А-ЯЁа-яёA-Za-z]{1,15}(\s*(ЗК|ГЗ))?$/.test(line)) {
+      speakers.push(line.replace(/\s*(ЗК|ГЗ)\s*/g, '').trim());
+    }
+  }
+  return Array.from(new Set(speakers));
+}
+
+function normalizeDialogues(dialogues: string): string {
+  if (!dialogues) return '';
+  const trimmed = dialogues.trim();
+  if (!trimmed) return '';
+  if (trimmed.toLowerCase() === 'музыка') return 'Музыка';
+
+  const lines = trimmed.split('\n');
+  const blocks: Array<{ speaker: string | null; text: string[] }> = [];
+  let currentSpeaker: string | null = null;
+  let currentText: string[] = [];
+
+  const flush = () => {
+    if (currentSpeaker || currentText.length > 0) {
+      blocks.push({ speaker: currentSpeaker, text: currentText });
+    }
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const isSpeakerLine = /^[А-ЯЁA-Z][А-ЯЁа-яёA-Za-z]{1,15}(\s*(ЗК|ГЗ))?$/.test(line);
+    if (isSpeakerLine) {
+      flush();
+      currentSpeaker = line;
+      currentText = [];
+    } else {
+      currentText.push(line);
+    }
+  }
+  flush();
+
+  if (blocks.length === 1 && !blocks[0].speaker) {
+    const text = blocks[0].text.join(' ').replace(/\s+/g, ' ').trim();
+    return text;
+  }
+
+  return blocks.map(block => {
+    const text = block.text.join(' ').replace(/\s+/g, ' ').trim();
+    if (!block.speaker) return text;
+    return `${block.speaker}\n${text}`;
+  }).filter(Boolean).join('\n');
+}
+
+function buildFallbackDescription(dialogues: string): string {
+  const cleaned = dialogues.trim();
+  if (!cleaned || cleaned.toLowerCase() === 'музыка') return 'Без диалога';
+  const speakers = extractSpeakerLines(cleaned);
+  if (speakers.length > 0) {
+    return `Диалог: ${speakers.join(', ')}`;
+  }
+  return 'Диалог';
 }
 
 // Helper: Объединяет планы заставки в один план (как в реальном монтажном листе)
@@ -539,15 +620,37 @@ export async function POST(request: NextRequest) {
 
     const supabase = createServiceRoleClient();
 
-    // Get video data
-    const { data: video, error: videoError } = await supabase
-      .from('videos')
-      .select('chunk_progress_json, user_id')
-      .eq('id', videoId)
-      .single();
+    // Get video data (включая full_diarization для калибровки спикеров)
+    let video: {
+      chunk_progress_json: any;
+      user_id: string | null;
+      full_diarization: string | null;
+    } | null = null;
+    let videoError: any = null;
+    const maxVideoRetries = 5;
+    const retryDelayMs = 1500;
 
-    if (videoError || !video) {
-      throw new Error('Video not found');
+    for (let attempt = 1; attempt <= maxVideoRetries; attempt++) {
+      const { data, error } = await supabase
+        .from('videos')
+        .select('chunk_progress_json, user_id, full_diarization')
+        .eq('id', videoId)
+        .maybeSingle();
+
+      if (data) {
+        video = data;
+        break;
+      }
+
+      videoError = error;
+      console.warn(`⚠️ Video not found yet (attempt ${attempt}/${maxVideoRetries}) for ${videoId}`);
+      if (attempt < maxVideoRetries) {
+        await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+      }
+    }
+
+    if (!video) {
+      throw new Error(`Video not found: ${videoId} (${videoError?.message || 'unknown'})`);
     }
 
     const chunkProgress = video.chunk_progress_json;
@@ -560,19 +663,88 @@ export async function POST(request: NextRequest) {
     // Update status
     await updateChunkStatus(videoId, chunkIndex, 'processing');
 
+    // ═══════════════════════════════════════════════════════════════
+    // 🎤 FULL DIARIZATION: Загружаем данные полной диаризации
+    // Даёт стабильные Speaker ID на весь фильм + маппинг на персонажей
+    // ═══════════════════════════════════════════════════════════════
+    let fullDiarizationData: VideoDiarizationData | null = null;
+    let fullDiarizationWords: DiarizedWordFull[] = [];
+    let fullDiarizationMapping: Record<string, string> = {};
+    
+    if (video.full_diarization) {
+      try {
+        fullDiarizationData = deserializeDiarization(video.full_diarization);
+        fullDiarizationWords = fullDiarizationData.result.words;
+        fullDiarizationMapping = mappingToRecord(fullDiarizationData.speakerMapping);
+        
+        console.log(`\n🎤 FULL DIARIZATION LOADED:`);
+        console.log(`   Speakers: ${fullDiarizationData.result.speakerCount}`);
+        console.log(`   Mapped: ${Object.keys(fullDiarizationMapping).length} → ${Object.values(fullDiarizationMapping).join(', ')}`);
+        console.log(`   Words: ${fullDiarizationWords.length}`);
+      } catch (e) {
+        console.warn(`⚠️ Failed to load full diarization:`, e);
+      }
+    } else {
+      console.log(`⚠️ No full_diarization data available`);
+    }
+    
+    // ═══════════════════════════════════════════════════════════════
+    // 🎭 FACE RECOGNITION: Загружаем кластеры лиц для идентификации
+    // ═══════════════════════════════════════════════════════════════
+    let faceClusters: FaceCluster[] = [];
+    const useFaceRecognition = chunkProgress.useFaceRecognition === true;
+    
+    if (useFaceRecognition && chunkProgress.faceClusters?.length > 0) {
+      try {
+        // Восстанавливаем FaceCluster из JSON
+        faceClusters = chunkProgress.faceClusters.map((fc: any) => ({
+          clusterId: fc.clusterId,
+          appearances: fc.appearances,
+          firstSeen: fc.firstSeen,
+          lastSeen: fc.lastSeen,
+          characterName: fc.characterName || undefined,
+          centroid: new Float32Array(fc.centroid),
+          faces: fc.faceTimestamps.map((ts: number) => ({
+            timestamp: ts,
+            descriptor: new Float32Array(128), // placeholder
+            confidence: 1.0,
+            boundingBox: { x: 0, y: 0, width: 0, height: 0 }
+          })),
+        }));
+        
+        console.log(`\n🎭 FACE CLUSTERS LOADED: ${faceClusters.length} characters`);
+        for (const fc of faceClusters.slice(0, 5)) {
+          console.log(`   • ${fc.clusterId}: ${fc.appearances} appearances${fc.characterName ? ` → ${fc.characterName}` : ''}`);
+        }
+      } catch (e) {
+        console.warn(`⚠️ Failed to load face clusters:`, e);
+      }
+    } else if (useFaceRecognition) {
+      console.log(`⚠️ Face Recognition enabled but no clusters found`);
+    }
+
     // Get scenes for this chunk (from PySceneDetect)
     const allMergedScenes: MergedScene[] = chunkProgress.mergedScenes || [];
     const chunkStartSeconds = timecodeToSeconds(startTimecode);
     const chunkEndSeconds = timecodeToSeconds(endTimecode);
     
     const chunkScenes = allMergedScenes.filter(s => 
-      s.start_timestamp >= chunkStartSeconds - 1 && 
+      s.start_timestamp >= chunkStartSeconds && 
       s.start_timestamp < chunkEndSeconds
     );
     
     console.log(`📐 PySceneDetect scenes in chunk: ${chunkScenes.length}`);
 
-    // Prepare character registry (только из сценария)
+    // Build global plan index from ALL PySceneDetect scenes (stable across chunks)
+    const sceneIndexByStart = new Map<string, number>();
+    for (let i = 0; i < allMergedScenes.length; i++) {
+      const scene = allMergedScenes[i];
+      if (!sceneIndexByStart.has(scene.start_timecode)) {
+        sceneIndexByStart.set(scene.start_timecode, i + 1); // 1-based plan index
+      }
+    }
+
+    // Prepare character registry (из chunkProgress)
     let characterRegistry = '';
     const scriptData = chunkProgress.scriptData;
     
@@ -688,6 +860,18 @@ export async function POST(request: NextRequest) {
       console.log(`📊 Fallback parsed ${parsedScenes.length} scenes`);
     }
 
+    // If still no scenes, create placeholders from PySceneDetect boundaries
+    if (parsedScenes.length === 0 && sceneBoundaries.length > 0) {
+      console.warn(`⚠️ No AI scenes parsed. Using PySceneDetect boundaries with placeholders.`);
+      parsedScenes = sceneBoundaries.map(b => ({
+        start_timecode: b.start_timecode,
+        end_timecode: b.end_timecode,
+        plan_type: 'Ср.',
+        description: '[Анализ сцены]',
+        dialogues: 'Музыка',
+      }));
+    }
+
     // Match AI content to PySceneDetect timecodes
     let finalScenes: ParsedScene[];
     
@@ -704,8 +888,13 @@ export async function POST(request: NextRequest) {
           dialogues: parsedScenes[idx]?.dialogues || 'Музыка',
         }));
       } else {
-        // Количество не совпадает — УМНОЕ СОПОСТАВЛЕНИЕ
+        // ═══════════════════════════════════════════════════════════════
+        // 🎯 НОВАЯ ЛОГИКА: PySceneDetect = ИСТИНА, Gemini = ОПИСАНИЕ
+        // Всегда сохраняем ВСЕ PySceneDetect таймкоды!
+        // Gemini только даёт описание и диалоги для каждого плана
+        // ═══════════════════════════════════════════════════════════════
         console.warn(`⚠️ Mismatch: ${parsedScenes.length} AI vs ${sceneBoundaries.length} PySceneDetect`);
+        console.log(`   🎯 Using PySceneDetect timecodes as ground truth`);
         
         // Создаём карту AI сцен по таймкодам для быстрого поиска
         const aiSceneMap = new Map<string, typeof parsedScenes[0]>();
@@ -713,36 +902,25 @@ export async function POST(request: NextRequest) {
           aiSceneMap.set(scene.start_timecode, scene);
         }
         
-        // Для каждой PySceneDetect сцены ищем соответствующую AI сцену
-        const mappedScenes = sceneBoundaries.map((b): ParsedScene | null => {
-          // Точное совпадение по start_timecode
+        // Сортируем AI сцены по времени для поиска ближайших
+        const aiScenesByTime = [...parsedScenes].sort((a, b) =>
+          timecodeToSeconds(a.start_timecode) - timecodeToSeconds(b.start_timecode)
+        );
+        
+        let matchedCount = 0;
+        let containingCount = 0;
+        let placeholderCount = 0;
+        
+        // Для каждой PySceneDetect сцены ищем описание от AI
+        const mappedScenes: ParsedScene[] = sceneBoundaries.map((b): ParsedScene => {
+          const targetStart = timecodeToSeconds(b.start_timecode);
+          const targetEnd = timecodeToSeconds(b.end_timecode);
+          
+          // 1️⃣ Точное совпадение по start_timecode
           let aiScene = aiSceneMap.get(b.start_timecode);
-          
-          // Если не нашли — ищем ближайшую (в пределах 2 секунд)
-          if (!aiScene) {
-            const targetStart = timecodeToSeconds(b.start_timecode);
-            let closestScene: typeof parsedScenes[0] | null = null;
-            let closestDiff = 2; // максимум 2 секунды разницы
-            
-            for (const scene of parsedScenes) {
-              const sceneStart = timecodeToSeconds(scene.start_timecode);
-              const diff = Math.abs(sceneStart - targetStart);
-              if (diff < closestDiff) {
-                closestDiff = diff;
-                closestScene = scene;
-              }
-            }
-            
-            if (closestScene) {
-              aiScene = closestScene;
-              // Удаляем использованную сцену чтобы не использовать повторно
-              aiSceneMap.delete(closestScene.start_timecode);
-            }
-          } else {
-            aiSceneMap.delete(b.start_timecode);
-          }
-          
           if (aiScene) {
+            aiSceneMap.delete(b.start_timecode);
+            matchedCount++;
             return {
               timecode: `${b.start_timecode} - ${b.end_timecode}`,
               start_timecode: b.start_timecode,
@@ -751,86 +929,70 @@ export async function POST(request: NextRequest) {
               description: aiScene.description || '',
               dialogues: aiScene.dialogues || 'Музыка',
             };
-          } else {
-            // ═══════════════════════════════════════════════════════════════
-            // 🎬 НОВАЯ ЛОГИКА: Проверяем, попадает ли сцена ВНУТРЬ объединённого плана
-            // Например: заставка 00:00:04 - 00:01:06 содержит 30 микро-склеек
-            // Gemini описал их как ОДИН план — используем его данные!
-            // ═══════════════════════════════════════════════════════════════
-            const targetStart = timecodeToSeconds(b.start_timecode);
-            let containingPlan: typeof parsedScenes[0] | null = null;
-            
-            for (const scene of parsedScenes) {
-              const planStart = timecodeToSeconds(scene.start_timecode);
-              const planEnd = timecodeToSeconds(scene.end_timecode);
-              
-              // Если наша сцена попадает ВНУТРЬ этого плана — это объединённый план
-              if (targetStart >= planStart && targetStart < planEnd) {
-                containingPlan = scene;
-                break;
-              }
+          }
+          
+          // 2️⃣ Ищем ближайшую AI сцену (в пределах 2 секунд)
+          let closestScene: typeof parsedScenes[0] | null = null;
+          let closestDiff = 2;
+          
+          for (const scene of aiScenesByTime) {
+            const sceneStart = timecodeToSeconds(scene.start_timecode);
+            const diff = Math.abs(sceneStart - targetStart);
+            if (diff < closestDiff && aiSceneMap.has(scene.start_timecode)) {
+              closestDiff = diff;
+              closestScene = scene;
             }
-            
-            if (containingPlan) {
-              // Сцена внутри объединённого плана (заставка, титры и т.д.)
-              // Возвращаем null — эта сцена будет пропущена, используется объединённый план
-              return null; // Mark for filtering
-            } else {
-              // Действительно не нашли — создаём placeholder
-            console.log(`   ⚠️ No AI match for ${b.start_timecode}, creating placeholder`);
+          }
+          
+          if (closestScene) {
+            aiSceneMap.delete(closestScene.start_timecode);
+            matchedCount++;
             return {
               timecode: `${b.start_timecode} - ${b.end_timecode}`,
               start_timecode: b.start_timecode,
               end_timecode: b.end_timecode,
-              plan_type: 'Ср.',
-              description: '[Требует описания]',
-              dialogues: 'Музыка',
+              plan_type: closestScene.plan_type || 'Ср.',
+              description: closestScene.description || '',
+              dialogues: closestScene.dialogues || 'Музыка',
             };
+          }
+          
+          // 3️⃣ Проверяем, попадает ли сцена ВНУТРЬ объединённого плана AI
+          // Берём ОПИСАНИЕ от этого плана, но сохраняем PySceneDetect таймкоды!
+          for (const scene of parsedScenes) {
+            const planStart = timecodeToSeconds(scene.start_timecode);
+            const planEnd = timecodeToSeconds(scene.end_timecode);
+            
+            if (targetStart >= planStart && targetStart < planEnd) {
+              containingCount++;
+              return {
+                timecode: `${b.start_timecode} - ${b.end_timecode}`,
+                start_timecode: b.start_timecode,
+                end_timecode: b.end_timecode,
+                plan_type: scene.plan_type || 'Ср.',
+                description: scene.description || '',  // Берём описание от объединённого плана
+                dialogues: scene.dialogues || 'Музыка',
+              };
             }
           }
-        });
-        
-        // Фильтруем null (сцены внутри объединённых планов) и добавляем объединённые планы
-        const filteredScenes = mappedScenes.filter((s): s is ParsedScene => s !== null);
-        
-        // Добавляем объединённые планы Gemini (заставки и т.д.) которые покрывают несколько сцен
-        const mergedPlans = parsedScenes.filter(p => {
-          const planStart = timecodeToSeconds(p.start_timecode);
-          const planEnd = timecodeToSeconds(p.end_timecode);
-          const planDuration = planEnd - planStart;
           
-          // Если план длится > 10 секунд, это вероятно объединённый план (заставка)
-          return planDuration > 10;
+          // 4️⃣ Ничего не нашли — создаём план с пометкой
+          placeholderCount++;
+          console.log(`   ⚠️ No AI match for ${b.start_timecode}, will use ASR`);
+          return {
+            timecode: `${b.start_timecode} - ${b.end_timecode}`,
+            start_timecode: b.start_timecode,
+            end_timecode: b.end_timecode,
+            plan_type: 'Ср.',
+            description: '[Анализ сцены]',  // Будет заполнено из ASR/контекста
+            dialogues: 'Музыка',
+          };
         });
         
-        // Объединяем: объединённые планы + отфильтрованные обычные сцены
-        const allScenes = [
-          ...mergedPlans.map(p => ({
-            timecode: `${p.start_timecode} - ${p.end_timecode}`,
-            start_timecode: p.start_timecode,
-            end_timecode: p.end_timecode,
-            plan_type: p.plan_type || 'Ср.',
-            description: p.description || '',
-            dialogues: p.dialogues || 'Музыка',
-          })),
-          ...filteredScenes.filter(s => {
-            // Исключаем сцены которые уже покрыты объединёнными планами
-            const sceneStart = timecodeToSeconds(s.start_timecode);
-            return !mergedPlans.some(p => {
-              const planStart = timecodeToSeconds(p.start_timecode);
-              const planEnd = timecodeToSeconds(p.end_timecode);
-              return sceneStart >= planStart && sceneStart < planEnd;
-            });
-          }),
-        ];
+        finalScenes = mappedScenes;
         
-        // Сортируем по времени
-        finalScenes = allScenes.sort((a, b) => 
-          timecodeToSeconds(a.start_timecode) - timecodeToSeconds(b.start_timecode)
-        );
-        
-        const matched = finalScenes.filter(s => !s.description.includes('[Требует описания]')).length;
-        console.log(`📊 Smart matching: ${matched}/${finalScenes.length} scenes (${sceneBoundaries.length} raw → ${finalScenes.length} with merges)`);
+        console.log(`📊 Smart matching: ${matchedCount} exact, ${containingCount} from parent, ${placeholderCount} ASR-fill`);
+        console.log(`   ✅ Preserved ALL ${sceneBoundaries.length} PySceneDetect timecodes`);
       }
     } else {
       finalScenes = parsedScenes.map(s => ({
@@ -843,13 +1005,13 @@ export async function POST(request: NextRequest) {
       }));
     }
 
-    // Filter scenes within chunk range
-    let validScenes = finalScenes.filter(scene => {
-      const sceneStart = timecodeToSeconds(scene.start_timecode);
-      return sceneStart >= (chunkStartSeconds - 1) && sceneStart < chunkEndSeconds;
-    });
+    // Scene boundaries already come from chunkScenes; avoid re-filtering to prevent drops
+    let validScenes = finalScenes;
 
-    console.log(`📊 Valid scenes in range: ${validScenes.length}`);
+    console.log(`📊 Valid scenes in chunk: ${validScenes.length}`);
+    if (validScenes.length !== chunkScenes.length) {
+      console.warn(`⚠️ Scene count mismatch: PySceneDetect=${chunkScenes.length}, Final=${validScenes.length}`);
+    }
 
     // ═══════════════════════════════════════════════════════════════
     // 🔍 ПРОВЕРКА КАЧЕСТВА: Детектируем "залипание" Gemini
@@ -877,43 +1039,165 @@ export async function POST(request: NextRequest) {
     console.log(`✅ Quality check passed (score: ${qualityIssues.score}/100)`);
 
     // ═══════════════════════════════════════════════════════════════
+    // 🎯 ИНКРЕМЕНТАЛЬНАЯ КАЛИБРОВКА СПИКЕРОВ
+    // В КАЖДОМ чанке калибруем ещё не откалиброванных спикеров
+    // Связываем Speaker ID (A, B, C...) с именами персонажей
+    // ═══════════════════════════════════════════════════════════════
+    const mappedCount = Object.keys(fullDiarizationMapping).length;
+    const totalSpeakers = fullDiarizationData?.result.speakers.length || 0;
+    const unmappedSpeakers = fullDiarizationData?.result.speakers.filter(
+      s => !fullDiarizationMapping[s]
+    ) || [];
+    
+    // Калибруем ВСЕГДА если есть неоткалиброванные спикеры!
+    const needsCalibration = fullDiarizationData && 
+      unmappedSpeakers.length > 0 &&
+      validScenes.length > 0;
+    
+    if (needsCalibration) {
+      console.log(`\n🎯 INCREMENTAL CALIBRATION in chunk ${chunkIndex}...`);
+      console.log(`   Current mapping: ${mappedCount}/${totalSpeakers} speakers`);
+      console.log(`   Unmapped: ${unmappedSpeakers.join(', ')}`);
+      
+      // 🎯 PRE-CALIBRATION для первого чанка (поиск упоминаний имён во всём аудио)
+      if (chunkIndex === 0 && fullDiarizationWords.length > 0 && scriptData?.characters) {
+        console.log(`\n🎯 PRE-CALIBRATION: Analyzing full audio for name mentions...`);
+        
+        const preCalibration = preCalibrateFromMentions(
+          fullDiarizationWords,
+          scriptData.characters.map((c: any) => ({
+            name: c.name,
+            normalizedName: c.normalizedName || c.name,
+            variants: c.variants || [c.name],
+            gender: c.gender,
+          }))
+        );
+        
+        // Применяем к текущему mapping
+        if (preCalibration.speakerToCharacter.size > 0) {
+          const currentMapping = new Map(
+            fullDiarizationData.speakerMapping.map(m => [m.speaker, m.character])
+          );
+          const updatedMapping = applyPreCalibration(currentMapping, preCalibration);
+          
+          // Конвертируем обратно в формат БД
+          fullDiarizationData.speakerMapping = Array.from(updatedMapping.entries()).map(
+            ([speaker, character]) => ({ speaker, character })
+          );
+          fullDiarizationMapping = Object.fromEntries(updatedMapping);
+          
+          console.log(`✅ Applied pre-calibration: ${updatedMapping.size} speakers mapped`);
+        }
+      }
+      
+      // Собираем имена персонажей из сценария
+      const knownCharacters = scriptData?.characters?.map((c: { name?: string }) => 
+        c.name?.toUpperCase()
+      ).filter(Boolean) || [];
+      
+      // Собираем уже использованные имена (чтобы не дублировать)
+      const usedCharacters = new Set(Object.values(fullDiarizationMapping));
+      const availableCharacters = knownCharacters.filter((c: string) => !usedCharacters.has(c));
+      
+      // Используем Gemini сцены для калибровки
+      const scenesForCalibration = validScenes.slice(0, 30).map(s => ({
+        start_timecode: s.start_timecode,
+        end_timecode: s.end_timecode,
+        description: s.description,
+        dialogues: s.dialogues,
+      }));
+      
+      console.log(`   Scenes for calibration: ${scenesForCalibration.length}`);
+      console.log(`   Available characters: ${availableCharacters.length} (${availableCharacters.slice(0, 5).join(', ')}...)`);
+      
+      try {
+        const timecodeToMs = (tc: string) => timecodeToSeconds(tc) * 1000;
+        
+        // Калибруем ТОЛЬКО неоткалиброванных спикеров
+        const newMappings = calibrateSpeakerMapping(
+          fullDiarizationData.result,
+          scenesForCalibration,
+          availableCharacters,
+          timecodeToMs,
+          undefined,
+          unmappedSpeakers // Только эти спикеры
+        );
+        
+        if (newMappings.length > 0) {
+          // Обновляем маппинг
+          fullDiarizationData.speakerMapping = [
+            ...fullDiarizationData.speakerMapping,
+            ...newMappings
+          ];
+          
+          // Обновляем локальный маппинг
+          for (const m of newMappings) {
+            fullDiarizationMapping[m.speakerId] = m.characterName;
+          }
+          
+          // Сохраняем в БД
+          await supabase
+            .from('videos')
+            .update({ full_diarization: serializeDiarization(fullDiarizationData) })
+            .eq('id', videoId);
+          
+          console.log(`   ✅ Calibrated ${newMappings.length} new speakers (total: ${Object.keys(fullDiarizationMapping).length}/${totalSpeakers})`);
+          for (const m of newMappings) {
+            console.log(`      ${m.speakerId} → ${m.characterName} (confidence: ${(m.confidence * 100).toFixed(0)}%)`);
+          }
+        } else {
+          console.log(`   ⚠️ No new speakers calibrated in this chunk (will try in next)`);
+        }
+      } catch (calibrationError) {
+        console.error(`   ❌ Calibration error:`, calibrationError);
+      }
+    } else if (fullDiarizationData && unmappedSpeakers.length === 0) {
+      console.log(`\n✅ All ${totalSpeakers} speakers already calibrated`);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     // 🎤 WHISPER ASR: Word-level timestamps для точных диалогов
+    // (Skip if we have Full Diarization)
     // ═══════════════════════════════════════════════════════════════
     let whisperWords: WhisperWord[] = [];
     const tempDir = '/tmp/whisper-v4';
     const tempVideoPath = path.join(tempDir, `chunk_${videoId}_${chunkIndex}.mp4`);
     const tempAudioPath = path.join(tempDir, `chunk_${videoId}_${chunkIndex}.mp3`);
     
-    try {
-      console.log(`\n🎤 WHISPER: Starting WORD-LEVEL transcription...`);
-      
-      // Ensure temp directory exists
-      if (!existsSync(tempDir)) {
-        mkdirSync(tempDir, { recursive: true });
-      }
-      
-      // Download video chunk
-      console.log(`📥 Downloading video chunk...`);
-      const videoResponse = await fetch(chunkStorageUrl);
-      if (!videoResponse.ok) {
-        throw new Error(`Failed to download video: ${videoResponse.status}`);
-      }
-      const videoBuffer = await videoResponse.arrayBuffer();
-      writeFileSync(tempVideoPath, Buffer.from(videoBuffer));
-      console.log(`✅ Video downloaded: ${(videoBuffer.byteLength / 1024 / 1024).toFixed(1)}MB`);
-      
-      // Extract audio and transcribe with WORD-LEVEL timestamps
-      await extractAudioFromVideo(tempVideoPath, tempAudioPath);
-      const transcription = await transcribeAudioWithWords(tempAudioPath, 'ru');
-      
-      // Adjust word timecodes to absolute video time
-      whisperWords = (transcription.words || []).map(w => ({
-        start: w.start + chunkStartSeconds,
-        end: w.end + chunkStartSeconds,
-        word: w.word,
-      }));
-      
-      console.log(`✅ Whisper: ${whisperWords.length} words found (word-level)`);
+    // Skip Whisper if we have Full Diarization (better quality + speaker info)
+    if (fullDiarizationWords.length > 0) {
+      console.log(`\n🎤 WHISPER: SKIPPED (Full Diarization available with ${fullDiarizationWords.length} words)`);
+    } else {
+      try {
+        console.log(`\n🎤 WHISPER: Starting WORD-LEVEL transcription...`);
+        
+        // Ensure temp directory exists
+        if (!existsSync(tempDir)) {
+          mkdirSync(tempDir, { recursive: true });
+        }
+        
+        // Download video chunk
+        console.log(`📥 Downloading video chunk...`);
+        const videoResponse = await fetch(chunkStorageUrl);
+        if (!videoResponse.ok) {
+          throw new Error(`Failed to download video: ${videoResponse.status}`);
+        }
+        const videoBuffer = await videoResponse.arrayBuffer();
+        writeFileSync(tempVideoPath, Buffer.from(videoBuffer));
+        console.log(`✅ Video downloaded: ${(videoBuffer.byteLength / 1024 / 1024).toFixed(1)}MB`);
+        
+        // Extract audio and transcribe with WORD-LEVEL timestamps
+        await extractAudioFromVideo(tempVideoPath, tempAudioPath);
+        const transcription = await transcribeAudioWithWords(tempAudioPath, 'ru');
+        
+        // Adjust word timecodes to absolute video time
+        whisperWords = (transcription.words || []).map(w => ({
+          start: w.start + chunkStartSeconds,
+          end: w.end + chunkStartSeconds,
+          word: w.word,
+        }));
+        
+        console.log(`✅ Whisper: ${whisperWords.length} words found (word-level)`);
       
       // Log first 10 words for debugging
       if (whisperWords.length > 0) {
@@ -1023,8 +1307,99 @@ export async function POST(request: NextRequest) {
             return { ...scene, dialogues: 'Музыка' };
           }
           
-          // Whisper: какие слова попадают в этот план?
-          const whisperText = formatWordsForPlan(whisperWords, sceneStart, sceneEnd);
+          // ═══════════════════════════════════════════════════════════════
+          // ПРИОРИТЕТ: Full Diarization → Whisper
+          // Full Diarization даёт стабильные Speaker ID + текст
+          // ═══════════════════════════════════════════════════════════════
+          const sceneStartMs = sceneStart * 1000;
+          const sceneEndMs = sceneEnd * 1000;
+          
+          // 📝 РАСШИРЕННОЕ ОКНО для диалогов (±500ms) — не теряем реплики на границах
+          const CONTEXT_WINDOW_MS = 500; // 0.5 секунды до/после сцены
+          
+          // Получаем слова из Full Diarization для этой сцены (с контекстом)
+          const diarizationWordsInScene = fullDiarizationWords.filter(w => {
+            // Слово попадает в сцену если:
+            // 1. Начинается в пределах сцены (с расширением)
+            // 2. ИЛИ заканчивается в пределах сцены
+            // 3. ИЛИ полностью перекрывает сцену
+            const wordStart = w.start;
+            const wordEnd = w.end;
+            const sceneStartWithContext = sceneStartMs - CONTEXT_WINDOW_MS;
+            const sceneEndWithContext = sceneEndMs + CONTEXT_WINDOW_MS;
+            
+            return (
+              (wordStart >= sceneStartWithContext && wordStart <= sceneEndWithContext) ||
+              (wordEnd >= sceneStartWithContext && wordEnd <= sceneEndWithContext) ||
+              (wordStart <= sceneStartMs && wordEnd >= sceneEndMs)
+            );
+          });
+          
+          // Если есть Full Diarization — используем его текст и спикеров
+          let speechText = '';
+          let diarizationSpeaker: string | null = null;
+          
+          // 🎭 FACE RECOGNITION: инициализация (используется ниже)
+          let facesInFrame: string[] = [];
+          let isOffScreen = false;
+          
+          if (diarizationWordsInScene.length > 0) {
+            speechText = diarizationWordsInScene.map(w => w.word).join(' ');
+            
+            // Определяем доминантного спикера
+            const speakerCounts: Record<string, number> = {};
+            for (const w of diarizationWordsInScene) {
+              speakerCounts[w.speaker] = (speakerCounts[w.speaker] || 0) + 1;
+            }
+            const dominantSpeakerId = Object.entries(speakerCounts)
+              .sort((a, b) => b[1] - a[1])[0]?.[0];
+            
+            // Маппим Speaker ID на имя персонажа
+            if (dominantSpeakerId && fullDiarizationMapping[dominantSpeakerId]) {
+              diarizationSpeaker = fullDiarizationMapping[dominantSpeakerId];
+            }
+            
+            // ═══════════════════════════════════════════════════════════
+            // 🎭 FACE RECOGNITION: определяем лица в сцене
+            // ═══════════════════════════════════════════════════════════
+            
+            if (faceClusters.length > 0) {
+              // Конвертируем fullDiarizationMapping в Map для determineSceneCharacters
+              const speakerToCharMap = new Map<string, string>(
+                Object.entries(fullDiarizationMapping)
+              );
+              
+              // Конвертируем words в формат DiarizedWord
+              const wordsForFace: DiarizedWord[] = diarizationWordsInScene.map(w => ({
+                text: w.word,
+                speaker: w.speaker,
+                start: w.start,
+                end: w.end,
+              }));
+              
+              const sceneCharInfo = determineSceneCharacters(
+                sceneStart * 1000,  // конвертируем в мс
+                sceneEnd * 1000,
+                faceClusters,
+                wordsForFace,
+                speakerToCharMap
+              );
+              
+              facesInFrame = sceneCharInfo.facesInFrame;
+              isOffScreen = sceneCharInfo.isOffScreen;
+              
+              if (sceneIndex < 5 && facesInFrame.length > 0) {
+                console.log(`   🎭 Faces in frame: ${facesInFrame.join(', ')}${isOffScreen ? ' (speaker off-screen)' : ''}`);
+              }
+            }
+            
+            if (sceneIndex < 5) {
+              console.log(`   🎤 Diarization: ${diarizationWordsInScene.length} words, speaker: ${dominantSpeakerId} → ${diarizationSpeaker || '?'}`);
+            }
+          }
+          
+          // Fallback: Whisper (если нет Full Diarization)
+          const whisperText = speechText || formatWordsForPlan(whisperWords, sceneStart, sceneEnd);
           
           // Нет речи в плане
           if (!whisperText || whisperText.length === 0) {
@@ -1096,18 +1471,32 @@ export async function POST(request: NextRequest) {
           }
           
           // ═══════════════════════════════════════════════════════════════
-          // ПРАВИЛО 1: Gemini видит спикера?
+          // ПРАВИЛО 0: Диаризация знает спикера? → ВЫСШИЙ ПРИОРИТЕТ!
           // ═══════════════════════════════════════════════════════════════
           let speaker: string | null = null;
           
+          // Если Full Diarization дала нам спикера — используем его!
+          if (diarizationSpeaker && !excludedSpeakers.includes(diarizationSpeaker)) {
+            speaker = diarizationSpeaker;
+            if (sceneIndex < 5) {
+              console.log(`   ✅ Speaker from Diarization: ${speaker}`);
+            }
+          }
+          
+          // ═══════════════════════════════════════════════════════════════
+          // ПРАВИЛО 1: Gemini видит спикера? (fallback если нет диаризации)
+          // ═══════════════════════════════════════════════════════════════
+          
           // Извлекаем имя из диалога Gemini (формат: "ИМЯ\nтекст" или "ИМЯ ЗК\nтекст")
-          const speakerMatch = geminiDialogues.match(/^([А-ЯЁA-Z][А-ЯЁа-яёA-Za-z]{1,15})(?:\s*ЗК|\s*ГЗ)?[\n\r]/);
-          if (speakerMatch) {
-            const candidateName = speakerMatch[1].trim().toUpperCase();
-            // Проверяем: это персонаж из сценария и НЕ исключён?
-            if (knownCharacters.some(c => c.toUpperCase() === candidateName) && 
-                !excludedSpeakers.includes(candidateName)) {
-              speaker = candidateName;
+          if (!speaker) {
+            const speakerMatch = geminiDialogues.match(/^([А-ЯЁA-Z][А-ЯЁа-яёA-Za-z]{1,15})(?:\s*ЗК|\s*ГЗ)?[\n\r]/);
+            if (speakerMatch) {
+              const candidateName = speakerMatch[1].trim().toUpperCase();
+              // Проверяем: это персонаж из сценария и НЕ исключён?
+              if (knownCharacters.some(c => c.toUpperCase() === candidateName) && 
+                  !excludedSpeakers.includes(candidateName)) {
+                speaker = candidateName;
+              }
             }
           }
           
@@ -1267,31 +1656,60 @@ export async function POST(request: NextRequest) {
           // Запоминаем спикера (без ЗК) для следующих сцен
           lastSpeaker = speaker.replace(/\s*ЗК\s*/g, '').trim();
           
+          // Используем текст от Full Diarization если есть, иначе Whisper
+          const finalText = speechText || whisperText;
+          
+          // ═══════════════════════════════════════════════════════════════
+          // 🎭 FACE RECOGNITION: Добавляем ЗК если спикер не в кадре
+          // ═══════════════════════════════════════════════════════════════
+          let finalSpeaker = speaker;
+          
+          // Если Face Recognition доступен и определил, что спикер за кадром
+          if (isOffScreen && !speaker.includes('ЗК')) {
+            finalSpeaker = `${speaker} ЗК`;
+            if (sceneIndex < 5) {
+              console.log(`   🎭 Added ЗК: ${speaker} is speaking but not in frame (faces: ${facesInFrame.join(', ') || 'none'})`);
+            }
+          }
+          
+          // Если Face Recognition показывает лица, но спикер другой — это точно ЗК
+          if (facesInFrame.length > 0 && 
+              !facesInFrame.includes(speaker.replace(/\s*ЗК\s*/g, '')) &&
+              !speaker.includes('ЗК')) {
+            finalSpeaker = `${speaker} ЗК`;
+            if (sceneIndex < 5) {
+              console.log(`   🎭 Added ЗК: ${speaker} speaks, but in frame: ${facesInFrame.join(', ')}`);
+            }
+          }
+          
           if (sceneIndex < 3) {
-            console.log(`   🎯 ${speaker}: "${whisperText.slice(0, 40)}..." (${scene.start_timecode})`);
+            const source = speechText ? 'Diarization' : 'Whisper';
+            const faceInfo = facesInFrame.length > 0 ? ` [faces: ${facesInFrame.join(', ')}]` : '';
+            console.log(`   🎯 ${finalSpeaker}: "${finalText.slice(0, 40)}..." [${source}]${faceInfo} (${scene.start_timecode})`);
           }
           
           return {
             ...scene,
-            dialogues: `${speaker}\n${whisperText}`,
+            dialogues: `${finalSpeaker}\n${finalText}`,
           };
         });
         
         console.log(`✅ Smart Speaker v10: ${validScenes.length} scenes processed`);
       }
       
-    } catch (whisperError) {
-      console.warn(`⚠️ Whisper failed, using Gemini dialogues:`, whisperError instanceof Error ? whisperError.message : whisperError);
-      // Continue with Gemini dialogues if Whisper fails
-    } finally {
-      // Cleanup temp files
-      try {
-        if (existsSync(tempVideoPath)) unlinkSync(tempVideoPath);
-        if (existsSync(tempAudioPath)) unlinkSync(tempAudioPath);
-      } catch {
-        // Ignore cleanup errors
+      } catch (whisperError) {
+        console.warn(`⚠️ Whisper failed, using Gemini dialogues:`, whisperError instanceof Error ? whisperError.message : whisperError);
+        // Continue with Gemini dialogues if Whisper fails
+      } finally {
+        // Cleanup temp files
+        try {
+          if (existsSync(tempVideoPath)) unlinkSync(tempVideoPath);
+          if (existsSync(tempAudioPath)) unlinkSync(tempAudioPath);
+        } catch {
+          // Ignore cleanup errors
+        }
       }
-    }
+    } // End of if (fullDiarizationWords.length > 0) ... else
 
     // ═══════════════════════════════════════════════════════════════
     // 🎬 ПОСТ-ОБРАБОТКА (упрощённая)
@@ -1299,11 +1717,18 @@ export async function POST(request: NextRequest) {
     console.log(`\n📐 Post-processing...`);
     
     validScenes = validScenes.map(scene => {
+      const normalizedDialogues = normalizeDialogues(scene.dialogues);
+      const cleanedDialogues = cleanFakeSoundEffects(normalizedDialogues);
+      const normalizedDescription = replaceFullNamesWithShort(scene.description);
+      const fallbackDescription = isPlaceholderDescription(normalizedDescription)
+        ? buildFallbackDescription(cleanedDialogues)
+        : normalizedDescription;
+
       return {
         ...scene,
         // Заменяем полные имена на короткие (ГАЛИНА → ГАЛЯ)
-        dialogues: replaceFullNamesWithShort(scene.dialogues),
-        description: replaceFullNamesWithShort(scene.description),
+        dialogues: replaceFullNamesWithShort(cleanedDialogues),
+        description: fallbackDescription,
         // Нормализуем тип плана
         plan_type: normalizePlanType(scene.plan_type),
       };
@@ -1328,28 +1753,20 @@ export async function POST(request: NextRequest) {
       throw new Error(`Sheet ${sheetId} does not exist`);
     }
 
-    // Get last plan number
-    const { data: lastEntry } = await supabase
-      .from('montage_entries')
-      .select('plan_number, order_index')
-      .eq('sheet_id', sheetId)
-      .order('plan_number', { ascending: false })
-      .limit(1);
-    
-    const lastPlanNumber = lastEntry?.[0]?.plan_number ?? 0;
-    const lastOrderIndex = lastEntry?.[0]?.order_index ?? -1;
-
-    // Insert entries
-    const entriesToInsert = validScenes.map((scene, index) => ({
-      sheet_id: sheetId,
-      plan_number: lastPlanNumber + index + 1,
-      order_index: lastOrderIndex + index + 1,
-      start_timecode: scene.start_timecode,
-      end_timecode: scene.end_timecode,
-      plan_type: scene.plan_type || '',
-      description: scene.description || '',
-      dialogues: scene.dialogues || '',
-    }));
+    // Insert entries with stable plan numbers based on PySceneDetect order
+    const entriesToInsert = validScenes.map(scene => {
+      const planNumber = sceneIndexByStart.get(scene.start_timecode);
+      return {
+        sheet_id: sheetId,
+        plan_number: planNumber ?? 0,
+        order_index: planNumber ?? 0,
+        start_timecode: scene.start_timecode,
+        end_timecode: scene.end_timecode,
+        plan_type: scene.plan_type || '',
+        description: scene.description || '',
+        dialogues: scene.dialogues || '',
+      };
+    }).filter(e => e.plan_number > 0);
 
     if (entriesToInsert.length > 0) {
       // Log first 3 entries
