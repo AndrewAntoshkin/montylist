@@ -1,9 +1,9 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
-// Fallback values for build-time (Railway Docker build)
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
-const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-key';
+// Hardcoded PUBLIC values (Railway doesn't pass build-args properly)
+const SUPABASE_URL = 'https://goykmdyodqhptkzfgumq.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdveWttZHlvZHFocHRremZndW1xIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjMwMzc5ODAsImV4cCI6MjA3ODYxMzk4MH0.aCivbd_mT8FMbYJmLRV6SkuC_UVr0yzfbW_xOItjW3I';
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
@@ -19,7 +19,7 @@ export async function updateSession(request: NextRequest) {
           return request.cookies.getAll();
         },
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) =>
+          cookiesToSet.forEach(({ name, value }) =>
             request.cookies.set(name, value)
           );
           supabaseResponse = NextResponse.next({
@@ -78,5 +78,3 @@ export async function updateSession(request: NextRequest) {
 
   return supabaseResponse;
 }
-
-
