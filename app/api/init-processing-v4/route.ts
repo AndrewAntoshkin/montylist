@@ -221,12 +221,12 @@ export async function POST(request: NextRequest) {
         
         // 🔀 SMART MERGING — убираем только микро-артефакты
         console.log(`\n🔀 Applying smart scene merging...`);
-        const mergedScenes = smartMergeScenes(rawScenes, {
+        const smartMerged = smartMergeScenes(rawScenes, {
           ultraShortThreshold: 0.3,  // <0.3 сек — точно артефакт (вспышка)
           shortThreshold: 0.8,       // Не трогаем сцены >0.8 сек
         });
         
-        detectedScenes = mergedScenes.map(s => ({
+        detectedScenes = smartMerged.map(s => ({
           timecode: s.timecode,
           timestamp: s.timestamp,
         }));
