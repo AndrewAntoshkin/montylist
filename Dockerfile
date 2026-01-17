@@ -25,7 +25,7 @@ RUN apt-get update && apt-get install -y \
 
 # Install PySceneDetect
 RUN pip3 install --break-system-packages scenedetect[opencv] \
-    && scenedetect --version
+    && scenedetect --help | head -5
 
 # Create app directory
 WORKDIR /app
