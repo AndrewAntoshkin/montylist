@@ -552,3 +552,143 @@ export function cleanupFrames(outputDir?: string): void {
     console.log(`🗑️  Cleaned up ${files.length} frame files`);
   }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// WORKER-BASED FACE CLUSTERING (обход Turbopack)
+// ═══════════════════════════════════════════════════════════════════════════
+
+interface WorkerResult {
+  success: boolean;
+  clusters?: Array<{
+    clusterId: string;
+    appearances: number;
+    firstSeen: number;
+    lastSeen: number;
+    centroid: number[];
+  }>;
+  stats?: {
+    framesProcessed: number;
+    facesDetected: number;
+    clustersCreated: number;
+  };
+  error?: string;
+}
+
+/**
+ * Запускает Face Clustering в отдельном Node.js процессе
+ * Обходит проблемы совместимости Turbopack + TensorFlow.js
+ * 
+ * @param videoPath - Путь к видео файлу
+ * @param options - Опции кластеризации
+ * @returns Promise с результатом кластеризации
+ */
+export async function clusterFacesInVideoWorker(
+  videoPath: string,
+  options: ClusteringOptions = {}
+): Promise<FaceCluster[]> {
+  const {
+    frameInterval = 5,
+    distanceThreshold = 0.5,
+    minAppearances = 5,
+  } = options;
+  
+  const workerScript = path.join(process.cwd(), 'scripts', 'face-cluster-worker.js');
+  const outputDir = path.join(process.cwd(), 'temp', `face-frames-${Date.now()}`);
+  
+  if (!fs.existsSync(workerScript)) {
+    throw new Error(`Worker script not found: ${workerScript}`);
+  }
+  
+  console.log('\n' + '═'.repeat(60));
+  console.log('🎭 FACE CLUSTERING (Worker Mode)');
+  console.log('═'.repeat(60));
+  console.log(`   Video: ${path.basename(videoPath)}`);
+  console.log(`   Frame interval: ${frameInterval}s`);
+  console.log(`   Mode: Separate Node.js process (bypassing Turbopack)`);
+  console.log('');
+  
+  return new Promise((resolve, reject) => {
+    const { spawn } = require('child_process');
+    
+    const worker = spawn('node', [
+      workerScript,
+      videoPath,
+      outputDir,
+      String(frameInterval),
+      String(distanceThreshold),
+      String(minAppearances),
+    ], {
+      cwd: process.cwd(),
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    
+    let stdout = '';
+    let stderr = '';
+    
+    worker.stdout.on('data', (data: Buffer) => {
+      stdout += data.toString();
+    });
+    
+    worker.stderr.on('data', (data: Buffer) => {
+      // Worker uses stderr for logging
+      const line = data.toString();
+      process.stderr.write(line);
+      stderr += line;
+    });
+    
+    worker.on('close', (code: number) => {
+      if (code !== 0) {
+        console.error(`❌ Worker exited with code ${code}`);
+        resolve([]);
+        return;
+      }
+      
+      try {
+        const result: WorkerResult = JSON.parse(stdout);
+        
+        if (!result.success) {
+          console.error(`❌ Worker error: ${result.error}`);
+          resolve([]);
+          return;
+        }
+        
+        // Convert to FaceCluster format
+        const clusters: FaceCluster[] = (result.clusters || []).map(c => ({
+          clusterId: c.clusterId,
+          faces: [], // Not included in worker output to save memory
+          centroid: new Float32Array(c.centroid),
+          appearances: c.appearances,
+          firstSeen: c.firstSeen,
+          lastSeen: c.lastSeen,
+        }));
+        
+        console.log('\n' + '═'.repeat(60));
+        console.log('📊 FACE CLUSTERING COMPLETE (Worker)');
+        console.log('═'.repeat(60));
+        console.log(`   Frames processed: ${result.stats?.framesProcessed || 0}`);
+        console.log(`   Faces detected: ${result.stats?.facesDetected || 0}`);
+        console.log(`   Characters found: ${clusters.length}`);
+        console.log('');
+        
+        for (const cluster of clusters.slice(0, 10)) {
+          console.log(`   ${cluster.clusterId}: ${cluster.appearances} appearances`);
+        }
+        
+        if (clusters.length > 10) {
+          console.log(`   ... and ${clusters.length - 10} more`);
+        }
+        
+        resolve(clusters);
+        
+      } catch (err) {
+        console.error('❌ Failed to parse worker result:', err);
+        resolve([]);
+      }
+    });
+    
+    worker.on('error', (err: Error) => {
+      console.error('❌ Worker spawn error:', err);
+      resolve([]);
+    });
+  });
+}

@@ -190,22 +190,19 @@ export async function POST(request: NextRequest) {
       console.log(`\n🎭 FACE RECOGNITION enabled - starting face clustering...`);
       
       try {
-        // Dynamic import to avoid loading heavy face-api dependencies when disabled
-        const { clusterFacesInVideo, cleanupFrames } = await import('@/lib/face-clustering');
+        // Use Worker mode to bypass Turbopack TensorFlow.js compatibility issues
+        // Worker runs in separate Node.js process without bundler interference
+        const { clusterFacesInVideoWorker } = await import('@/lib/face-clustering');
         
-        const faceFramesDir = path.join(tempDir, 'face-frames');
-        
-        faceClusters = await clusterFacesInVideo(originalVideoPath, {
+        faceClusters = await clusterFacesInVideoWorker(originalVideoPath, {
           frameInterval: 5,        // Каждые 5 секунд
           distanceThreshold: 0.5,  // Порог схожести
           minAppearances: 5,       // Минимум 5 появлений
-          outputDir: faceFramesDir,
         });
         
         console.log(`✅ Found ${faceClusters.length} unique characters`);
         
-        // Cleanup face frames
-        cleanupFrames(faceFramesDir);
+        // Worker handles cleanup internally
         
       } catch (faceError) {
         console.error(`❌ Face recognition failed:`, faceError);
