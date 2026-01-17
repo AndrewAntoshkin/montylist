@@ -2,6 +2,7 @@ import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { createVideoChunks } from '@/lib/video-chunking';
+import { runPreprocessAudio } from '@/lib/preprocess-audio-direct';
 
 export const maxDuration = 30;
 export const dynamic = 'force-dynamic';
@@ -189,6 +190,31 @@ export async function POST(request: NextRequest) {
       const processingVersion = filmMetadata?.processingVersion;
       const isClientSideInit = processingVersion === 'v3' || processingVersion === 'v4';
       
+      // ═══════════════════════════════════════════════════════════════
+      // 🎤 PRE-PROCESS AUDIO: Полная диаризация ПЕРЕД чанками
+      // Это даёт стабильные Speaker ID на весь фильм!
+      // Вызываем для ВСЕХ режимов (V3, V4 и обычный)
+      // ВАЖНО: Вызываем напрямую, без HTTP fetch!
+      // ═══════════════════════════════════════════════════════════════
+      const shouldPreProcessAudio = process.env.ASSEMBLYAI_API_KEY && videoDuration > 60;
+      
+      if (shouldPreProcessAudio) {
+        console.log(`🎤 Starting FULL AUDIO DIARIZATION for video ${video.id}...`);
+        
+        // Fire and forget - вызываем напрямую без блокировки
+        runPreprocessAudio({
+          videoId: video.id,
+          audioUrl: videoUrl,
+          characters: scriptData?.characters || [],
+        }).catch(err => {
+          console.error(`⚠️ Pre-process audio failed (non-critical):`, err);
+        });
+      }
+      
+      // V4: Клиент вызовет init-processing-v4 самостоятельно
+      // (убрали server-side fetch который падал с ECONNREFUSED)
+      console.log(`🎯 V4: Client will trigger init-processing-v4`);
+      
       if (isClientSideInit) {
         console.log(`🎯 ${processingVersion?.toUpperCase()} mode: returning URL for client-side init`);
         return NextResponse.json({
@@ -200,25 +226,6 @@ export async function POST(request: NextRequest) {
           processingVersion: processingVersion,
         });
       }
-      
-      // V4: Trigger PySceneDetect processing automatically (fire and forget)
-      const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || `${request.headers.get('x-forwarded-proto') || 'http'}://${request.headers.get('host')}`;
-      
-      console.log(`🚀 Triggering V4 (PySceneDetect) processing for video ${video.id}...`);
-      
-      fetch(`${baseUrl}/api/init-processing-v4`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          videoId: video.id,
-          videoUrl: videoUrl,
-          videoDuration: videoDuration,
-          filmMetadata: filmMetadata,
-          scriptData: scriptData, // Передаём данные сценария
-        }),
-      }).catch(err => {
-        console.error(`❌ Failed to trigger V4 processing for video ${video.id}:`, err);
-      });
       
       return NextResponse.json({
         success: true,
