@@ -713,6 +713,37 @@ export async function POST(request: NextRequest) {
         }));
         
         console.log(`\n🎭 FACE CLUSTERS LOADED: ${faceClusters.length} characters`);
+        
+        // ═══════════════════════════════════════════════════════════
+        // 🎭 AUTO-BIND: Привязываем Face→Name по частоте появлений
+        // Топ-N кластеров = топ-N персонажей (по количеству реплик)
+        // ═══════════════════════════════════════════════════════════
+        const scriptDataForFaces = chunkProgress.scriptData;
+        if (scriptDataForFaces?.characters?.length > 0) {
+          // Сортируем кластеры по частоте (главные герои появляются чаще)
+          const sortedClusters = [...faceClusters].sort((a, b) => b.appearances - a.appearances);
+          
+          // Берём главных персонажей (>= 15 реплик)
+          const mainCharacters = scriptDataForFaces.characters
+            .filter((c: { dialogueCount?: number }) => (c.dialogueCount || 0) >= 15)
+            .sort((a: { dialogueCount?: number }, b: { dialogueCount?: number }) => 
+              (b.dialogueCount || 0) - (a.dialogueCount || 0)
+            );
+          
+          // Привязываем
+          const boundCount = Math.min(sortedClusters.length, mainCharacters.length);
+          for (let i = 0; i < boundCount; i++) {
+            if (!sortedClusters[i].characterName) {
+              sortedClusters[i].characterName = mainCharacters[i].name?.toUpperCase();
+            }
+          }
+          
+          console.log(`   🔗 Auto-bound ${boundCount} faces to characters:`);
+          for (const fc of sortedClusters.slice(0, 5)) {
+            console.log(`      ${fc.clusterId} (${fc.appearances}x) → ${fc.characterName || '?'}`);
+          }
+        }
+        
         for (const fc of faceClusters.slice(0, 5)) {
           console.log(`   • ${fc.clusterId}: ${fc.appearances} appearances${fc.characterName ? ` → ${fc.characterName}` : ''}`);
         }
@@ -1197,6 +1228,25 @@ export async function POST(request: NextRequest) {
           word: w.word,
         }));
         
+        // ═══════════════════════════════════════════════════════════
+        // 🧹 ФИЛЬТР МУСОРА: убираем шаблонные фразы Whisper
+        // ═══════════════════════════════════════════════════════════
+        const GARBAGE_PHRASES = [
+          'короткие реплики', 'русские субтитры', 'субтитры добавляют',
+          'на русском языке', 'музыка играет', 'тишина', 'продолжение следует',
+          'конец фильма', 'титры', 'субтитр', 'перевод'
+        ];
+        
+        const originalCount = whisperWords.length;
+        whisperWords = whisperWords.filter(w => {
+          const text = w.word.toLowerCase();
+          return !GARBAGE_PHRASES.some(phrase => text.includes(phrase));
+        });
+        
+        if (whisperWords.length < originalCount) {
+          console.log(`   🧹 Filtered ${originalCount - whisperWords.length} garbage words`);
+        }
+        
         console.log(`✅ Whisper: ${whisperWords.length} words found (word-level)`);
       
       // Log first 10 words for debugging
@@ -1243,22 +1293,12 @@ export async function POST(request: NextRequest) {
                 if (char.description) {
                   characterDescriptions.set(upperName, char.description.toLowerCase());
                   
-                  // Извлекаем профессии из описания
-                  const desc = char.description.toLowerCase();
-                  if (desc.includes('косметолог') || desc.includes('массажист')) {
-                    professionToName.set('КОСМЕТОЛОГ', upperName);
-                  }
-                  if (desc.includes('менеджер') || desc.includes('управляющ') || desc.includes('директор')) {
-                    professionToName.set('МЕНЕДЖЕР', upperName);
-                  }
-                  if (desc.includes('официант')) {
-                    professionToName.set('ОФИЦИАНТКА', upperName);
-                  }
-                  if (desc.includes('клиент')) {
-                    if (!professionToName.has('КЛИЕНТКА')) {
-                      professionToName.set('КЛИЕНТКА', upperName);
-                    }
-                  }
+                  // ═══════════════════════════════════════════════════════════
+                  // ОТКЛЮЧЕНО: профессия→имя маппинг вызывает путаницу
+                  // Оставляем МЕНЕДЖЕР, ОФИЦИАНТКА как есть — это корректно
+                  // ═══════════════════════════════════════════════════════════
+                  // const desc = char.description.toLowerCase();
+                  // professionToName mapping disabled
                 }
               }
             }
