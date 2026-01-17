@@ -1,0 +1,41 @@
+# Nixpacks configuration for Railway deployment
+# Enables Face Recognition, PySceneDetect, and FFmpeg
+
+# Force Node.js 22
+[phases.setup]
+nixPkgs = [
+  "nodejs_22",
+  "python311",
+  "python311Packages.pip",
+  "ffmpeg",
+  "cairo",
+  "pango",
+  "giflib",
+  "libjpeg",
+  "libpng",
+  "librsvg",
+  "pixman",
+  "pkg-config"
+]
+
+[phases.install]
+cmds = [
+  # Install Python dependencies
+  "pip install --user scenedetect[opencv]",
+  # Install Node dependencies
+  "npm ci"
+]
+
+[phases.build]
+cmds = ["npm run build"]
+
+[start]
+cmd = "export PATH=$HOME/.local/bin:$PATH && npm start"
+
+[variables]
+# Ensure Python packages are found
+PATH = "/root/.local/bin:${PATH}"
+# Force Node.js version
+NODE_VERSION = "22"
+# Canvas build configuration
+npm_config_build_from_source = "true"
