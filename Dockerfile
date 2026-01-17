@@ -39,7 +39,15 @@ RUN npm ci
 # Copy source code
 COPY . .
 
-# Build Next.js
+# Build-time arguments (Railway will pass these automatically)
+ARG NEXT_PUBLIC_SUPABASE_URL
+ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+# Set as environment variables for build
+ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL
+ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+# Build Next.js (now has access to env vars)
 RUN npm run build
 
 # Expose port
