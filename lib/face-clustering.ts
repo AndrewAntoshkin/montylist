@@ -8,24 +8,6 @@
  * @date 2026-01-16
  */
 
-// ═══════════════════════════════════════════════════════════════════════════
-// POLYFILLS для совместимости с Next.js Turbopack
-// TextEncoder/TextDecoder требуются для TensorFlow.js
-// ═══════════════════════════════════════════════════════════════════════════
-import { TextEncoder, TextDecoder } from 'util';
-
-// Ensure global polyfills for TensorFlow.js compatibility
-if (typeof globalThis.TextEncoder === 'undefined') {
-  // @ts-ignore
-  globalThis.TextEncoder = TextEncoder;
-}
-if (typeof globalThis.TextDecoder === 'undefined') {
-  // @ts-ignore
-  globalThis.TextDecoder = TextDecoder;
-}
-
-import * as faceapi from '@vladmandic/face-api';
-import * as canvas from 'canvas';
 import * as fs from 'fs';
 import * as path from 'path';
 import { exec } from 'child_process';
@@ -33,10 +15,40 @@ import { promisify } from 'util';
 
 const execAsync = promisify(exec);
 
-// Patch faceapi для работы с node-canvas
-const { Canvas, Image, ImageData } = canvas;
-// @ts-ignore
-faceapi.env.monkeyPatch({ Canvas, Image, ImageData });
+// ═══════════════════════════════════════════════════════════════════════════
+// LAZY INITIALIZATION для face-api.js
+// Загружается только при первом вызове, чтобы избежать проблем с Turbopack
+// ═══════════════════════════════════════════════════════════════════════════
+let faceapi: typeof import('@vladmandic/face-api') | null = null;
+let canvasModule: typeof import('canvas') | null = null;
+let initialized = false;
+
+async function initFaceApi(): Promise<void> {
+  if (initialized) return;
+  
+  // CRITICAL: Polyfill TextEncoder/TextDecoder BEFORE loading face-api
+  const util = await import('util');
+  if (typeof globalThis.TextEncoder === 'undefined') {
+    // @ts-ignore
+    globalThis.TextEncoder = util.TextEncoder;
+  }
+  if (typeof globalThis.TextDecoder === 'undefined') {
+    // @ts-ignore
+    globalThis.TextDecoder = util.TextDecoder;
+  }
+  
+  // Now dynamically import face-api and canvas
+  faceapi = await import('@vladmandic/face-api');
+  canvasModule = await import('canvas');
+  
+  // Patch faceapi для работы с node-canvas
+  const { Canvas, Image, ImageData } = canvasModule;
+  // @ts-ignore
+  faceapi.env.monkeyPatch({ Canvas, Image, ImageData });
+  
+  initialized = true;
+  console.log('✅ Face-api.js initialized successfully');
+}
 
 let modelsLoaded = false;
 
@@ -77,6 +89,10 @@ export interface FrameData {
 
 async function loadModels(): Promise<void> {
   if (modelsLoaded) return;
+  
+  // Ensure face-api is initialized first
+  await initFaceApi();
+  if (!faceapi) throw new Error('Face-api not initialized');
   
   const modelPath = path.join(process.cwd(), 'models', 'face-api');
   
@@ -207,6 +223,7 @@ export async function extractFrames(
  */
 export async function detectAllFaces(frames: FrameData[]): Promise<FaceInstance[]> {
   await loadModels();
+  if (!faceapi || !canvasModule) throw new Error('Face-api not initialized');
   
   const allFaces: FaceInstance[] = [];
   let processed = 0;
@@ -216,7 +233,7 @@ export async function detectAllFaces(frames: FrameData[]): Promise<FaceInstance[
   for (const frame of frames) {
     try {
       // Загружаем изображение
-      const image = await canvas.loadImage(frame.imagePath);
+      const image = await canvasModule.loadImage(frame.imagePath);
       
       // Детектируем лица
       const detections = await faceapi
@@ -425,15 +442,16 @@ export async function identifyCharactersInFrame(
   clusters: FaceCluster[]
 ): Promise<string[]> {
   await loadModels();
+  if (!faceapi || !canvasModule) throw new Error('Face-api not initialized');
   
   try {
-    const image = await canvas.loadImage(framePath);
+    const image = await canvasModule.loadImage(framePath);
     
     const detections = await faceapi
       .detectAllFaces(image as unknown as HTMLImageElement, new faceapi.TinyFaceDetectorOptions({
-        inputSize: 416,
-        scoreThreshold: 0.5
-      }))
+          inputSize: 416,
+          scoreThreshold: 0.5
+        }))
       .withFaceLandmarks()
       .withFaceDescriptors();
     
