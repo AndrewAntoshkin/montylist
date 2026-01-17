@@ -2,9 +2,9 @@ import { createServerClient } from '@supabase/ssr';
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 
-// Hardcoded PUBLIC values (Railway doesn't pass build-args properly)
-const SUPABASE_URL = 'https://goykmdyodqhptkzfgumq.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdveWttZHlvZHFocHRremZndW1xIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjMwMzc5ODAsImV4cCI6MjA3ODYxMzk4MH0.aCivbd_mT8FMbYJmLRV6SkuC_UVr0yzfbW_xOItjW3I';
+// Use env vars if available (local dev), fallback to hardcoded for Railway build
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://goykmdyodqhptkzfgumq.supabase.co';
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdveWttZHlvZHFocHRremZndW1xIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjMwMzc5ODAsImV4cCI6MjA3ODYxMzk4MH0.aCivbd_mT8FMbYJmLRV6SkuC_UVr0yzfbW_xOItjW3I';
 
 // Service key comes from runtime env (NOT embedded in build)
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
