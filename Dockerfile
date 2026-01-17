@@ -3,6 +3,20 @@
 
 FROM node:22-bookworm
 
+# Build-time arguments - MUST be declared before use
+ARG NEXT_PUBLIC_SUPABASE_URL
+ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+# Set as environment variables for the entire build process
+ENV NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+
+# Debug: Print to verify variables are passed (will show in build logs)
+RUN echo "=== Build Environment Check ===" && \
+    echo "SUPABASE_URL length: $(echo -n "$NEXT_PUBLIC_SUPABASE_URL" | wc -c)" && \
+    echo "SUPABASE_KEY length: $(echo -n "$NEXT_PUBLIC_SUPABASE_ANON_KEY" | wc -c)" && \
+    echo "==============================="
+
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     # Python for PySceneDetect
@@ -39,15 +53,7 @@ RUN npm ci
 # Copy source code
 COPY . .
 
-# Build-time arguments (Railway will pass these automatically)
-ARG NEXT_PUBLIC_SUPABASE_URL
-ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
-
-# Set as environment variables for build
-ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL
-ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
-
-# Build Next.js (now has access to env vars)
+# Build Next.js (now has access to env vars via ENV set earlier)
 RUN npm run build
 
 # Expose port
