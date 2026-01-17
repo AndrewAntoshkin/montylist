@@ -19,12 +19,21 @@ import {
 } from '@/lib/pyscenedetect';
 import { mergeCreditsScenes, type MergedScene } from '@/lib/credits-detector';
 import { smartMergeScenes } from '@/lib/smart-scene-merger';
-import { clusterFacesInVideo, cleanupFrames, type FaceCluster } from '@/lib/face-clustering';
 import path from 'path';
 import fs from 'fs';
 
 // Feature flag for Face Recognition
 const USE_FACE_RECOGNITION = process.env.USE_FACE_RECOGNITION === 'true';
+
+// Dynamic import types for face clustering (only loaded when enabled)
+type FaceCluster = {
+  clusterId: string;
+  appearances: number;
+  firstSeen: number;
+  lastSeen: number;
+  characterName?: string | null;
+  centroid?: number[];
+};
 
 // 5 minutes timeout
 export const maxDuration = 300;
@@ -181,6 +190,9 @@ export async function POST(request: NextRequest) {
       console.log(`\n🎭 FACE RECOGNITION enabled - starting face clustering...`);
       
       try {
+        // Dynamic import to avoid loading heavy face-api dependencies when disabled
+        const { clusterFacesInVideo, cleanupFrames } = await import('@/lib/face-clustering');
+        
         const faceFramesDir = path.join(tempDir, 'face-frames');
         
         faceClusters = await clusterFacesInVideo(originalVideoPath, {
@@ -287,8 +299,8 @@ export async function POST(request: NextRequest) {
             detectedScenes.unshift({ timecode: '00:00:00:00', timestamp: 0 });
           }
           
-          const mergedScenes = mergeCreditsScenes(detectedScenes, videoDuration, videoFPS);
-          chunkProgress.mergedScenes = mergedScenes;
+          const ffmpegMergedScenes = mergeCreditsScenes(detectedScenes, videoDuration, videoFPS);
+          chunkProgress.mergedScenes = ffmpegMergedScenes;
           chunkProgress.sceneDetector = 'ffmpeg-fallback';
         }
       }

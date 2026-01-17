@@ -28,8 +28,8 @@ import {
   type DiarizedWordFull 
 } from '@/lib/full-audio-diarization';
 import { preCalibrateFromMentions, applyPreCalibration } from '@/lib/speaker-pre-calibration';
-import { determineSceneCharacters, type DiarizedWord } from '@/lib/face-speaker-binding';
-import { type FaceCluster } from '@/lib/face-clustering';
+import { determineSceneCharacters } from '@/lib/face-speaker-binding';
+import type { FaceCluster, DiarizedWord } from '@/lib/face-types';
 // CharacterTracker убран — работаем только с персонажами из сценария
 
 const AI_MODEL = 'google/gemini-3-pro';
