@@ -145,26 +145,29 @@ export async function POST(request: NextRequest) {
     
     try {
       const replicatePool = getReplicatePool();
-      const replicate = replicatePool.getClient();
+      const { client: replicate, release } = await replicatePool.getLeastLoadedClient();
       
       // V5 prompt: ТОЛЬКО описание и тип плана, НЕ диалоги
       const v5Prompt = buildV5Prompt(scenesInChunk, characters);
       
-      const output = await replicate.run(
-        "google-deepmind/gemini-2.0-flash-001",
-        {
-          input: {
-            prompt: v5Prompt,
-            video: chunkUrl,
-            temperature: 0.3,
-            max_tokens: 8000,
+      try {
+        const output = await replicate.run(
+          "google-deepmind/gemini-2.0-flash-001",
+          {
+            input: {
+              prompt: v5Prompt,
+              video: chunkUrl,
+              temperature: 0.3,
+              max_tokens: 8000,
+            }
           }
-        }
-      );
-      
-      replicatePool.releaseClient(replicate);
-      geminiResponse = parseGeminiOutput(output);
-      console.log(`   ✅ Gemini returned ${geminiResponse?.plans?.length || 0} plan descriptions`);
+        );
+        
+        geminiResponse = parseGeminiOutput(output);
+        console.log(`   ✅ Gemini returned ${geminiResponse?.plans?.length || 0} plan descriptions`);
+      } finally {
+        release(); // Always release the client
+      }
       
     } catch (geminiError) {
       console.error(`   ❌ Gemini error:`, geminiError);
