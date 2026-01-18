@@ -254,6 +254,10 @@ export async function POST(request: NextRequest) {
           speaker: w.speaker,
         }));
         
+        // 🔒 Save diarization IMMEDIATELY (before potentially failing alignment)
+        chunkProgress.fullDiarizationWords = fullDiarizationWords.slice(0, 50000);
+        console.log(`   💾 Saved ${fullDiarizationWords.length} words to chunk progress`);
+        
         // ═══════════════════════════════════════════════════════════════
         // STEP 3: ASR↔Script Alignment (если есть сценарий)
         // ═══════════════════════════════════════════════════════════════
@@ -286,9 +290,6 @@ export async function POST(request: NextRequest) {
         
         // Store mapping for chunk processing
         chunkProgress.speakerCharacterMap = speakerCharacterMapper.export();
-        
-        // Store speech segments for dedup
-        chunkProgress.fullDiarizationWords = fullDiarizationWords.slice(0, 50000); // Limit for JSON size
         
       } catch (diarError) {
         console.error(`   ❌ Diarization failed:`, diarError);

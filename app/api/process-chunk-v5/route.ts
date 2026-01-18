@@ -14,7 +14,7 @@
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import Replicate from 'replicate';
+import { getReplicatePool } from '@/lib/replicate-pool';
 import { 
   detectFacePresence, 
   formatPresenceStatus,
@@ -144,9 +144,8 @@ export async function POST(request: NextRequest) {
     let geminiResponse: any = null;
     
     try {
-      const replicate = new Replicate({
-        auth: process.env.REPLICATE_API_TOKEN,
-      });
+      const replicatePool = getReplicatePool();
+      const replicate = replicatePool.getClient();
       
       // V5 prompt: ТОЛЬКО описание и тип плана, НЕ диалоги
       const v5Prompt = buildV5Prompt(scenesInChunk, characters);
@@ -163,6 +162,7 @@ export async function POST(request: NextRequest) {
         }
       );
       
+      replicatePool.releaseClient(replicate);
       geminiResponse = parseGeminiOutput(output);
       console.log(`   ✅ Gemini returned ${geminiResponse?.plans?.length || 0} plan descriptions`);
       
