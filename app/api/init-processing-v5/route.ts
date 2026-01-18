@@ -245,9 +245,9 @@ export async function POST(request: NextRequest) {
         console.log(`      Speakers: ${diarizationResult.speakers.join(', ')}`);
         console.log(`      Duration: ${(diarizationResult.totalDuration / 60).toFixed(1)} min`);
         
-        // Convert to ASRWord format
+        // Convert to ASRWord format (AssemblyAI uses 'word', we use 'text')
         fullDiarizationWords = diarizationResult.words.map(w => ({
-          text: w.text,
+          text: w.word,  // AssemblyAI field is 'word', not 'text'
           startMs: w.start,
           endMs: w.end,
           confidence: w.confidence,
