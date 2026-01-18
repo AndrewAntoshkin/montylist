@@ -12,6 +12,7 @@
  */
 
 import mammoth from 'mammoth';
+import WordExtractor from 'word-extractor';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ТИПЫ
@@ -198,11 +199,21 @@ export function parseScriptText(text: string): ParsedScript {
 }
 
 /**
- * Парсит DOCX файл
+ * Парсит DOCX файл (новый формат Word)
  */
 export async function parseDocxFile(buffer: Buffer): Promise<ParsedScript> {
   const result = await mammoth.extractRawText({ buffer });
   return parseScriptText(result.value);
+}
+
+/**
+ * Парсит DOC файл (старый формат Word 97-2003)
+ */
+export async function parseDocFile(buffer: Buffer): Promise<ParsedScript> {
+  const extractor = new WordExtractor();
+  const doc = await extractor.extract(buffer);
+  const text = doc.getBody();
+  return parseScriptText(text);
 }
 
 /**

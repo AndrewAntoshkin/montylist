@@ -11,6 +11,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
   parseDocxFile,
+  parseDocFile,
   parseTxtFile,
   extractCharacterAttributes,
   type ScriptCharacter,
@@ -40,9 +41,15 @@ export async function POST(request: NextRequest) {
     
     let parsedScript;
     
-    if (filename.endsWith('.docx') || filename.endsWith('.doc')) {
+    if (filename.endsWith('.docx')) {
+      // Новый формат Word (.docx)
       const buffer = Buffer.from(await file.arrayBuffer());
       parsedScript = await parseDocxFile(buffer);
+    } else if (filename.endsWith('.doc')) {
+      // Старый формат Word 97-2003 (.doc)
+      console.log(`   Using word-extractor for .doc format`);
+      const buffer = Buffer.from(await file.arrayBuffer());
+      parsedScript = await parseDocFile(buffer);
     } else if (filename.endsWith('.txt')) {
       const text = await file.text();
       parsedScript = parseTxtFile(text);
