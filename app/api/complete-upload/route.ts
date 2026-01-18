@@ -188,7 +188,7 @@ export async function POST(request: NextRequest) {
       
       // Check if this is V3/V4 processing - if so, don't auto-trigger, let client handle it
       const processingVersion = filmMetadata?.processingVersion;
-      const isClientSideInit = processingVersion === 'v3' || processingVersion === 'v4';
+      const isClientSideInit = processingVersion === 'v3' || processingVersion === 'v4' || processingVersion === 'v5-beta';
       
       // ═══════════════════════════════════════════════════════════════
       // 🎤 PRE-PROCESS AUDIO: Полная диаризация ПЕРЕД чанками
@@ -213,7 +213,7 @@ export async function POST(request: NextRequest) {
       
       // V4: Клиент вызовет init-processing-v4 самостоятельно
       // (убрали server-side fetch который падал с ECONNREFUSED)
-      console.log(`🎯 V4: Client will trigger init-processing-v4`);
+      console.log(`🎯 ${processingVersion || 'V4'}: Client will trigger init-processing`);
       
       if (isClientSideInit) {
         console.log(`🎯 ${processingVersion?.toUpperCase()} mode: returning URL for client-side init`);
