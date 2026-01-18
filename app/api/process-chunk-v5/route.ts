@@ -261,7 +261,6 @@ export async function POST(request: NextRequest) {
         .join('\n\n');
       
       // Create entry (using snake_case fields from MergedScene)
-      // Note: only using columns that exist in montage_entries table
       const entryData = {
         sheet_id: sheetId,
         shot_no: sceneIndex + 1, // Generate plan number from index
@@ -271,6 +270,10 @@ export async function POST(request: NextRequest) {
         description: geminiPlan?.description || '',
         dialogues: dialogueText || null,
         duration: scene.end_timestamp - scene.start_timestamp,
+        // V5 metadata
+        processing_version: 'v5-beta',
+        dialogue_source: 'asr',
+        speaker_mapped: dialogues.some(d => !!speakerCharacterMap[d.character]),
       };
       
       // Upsert entry
