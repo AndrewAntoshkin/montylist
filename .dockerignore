@@ -1,0 +1,102 @@
+# Dependencies
+node_modules
+.npm
+
+# Build outputs
+.next
+out
+build
+dist
+
+# Development files
+.git
+.gitignore
+*.md
+!README.md
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Temp files
+temp
+tmp
+*.tmp
+
+# Test files
+*.test.ts
+*.spec.ts
+__tests__
+
+# Backup files
+backup
+
+# Environment files (should be set in hosting platform)
+.env*.local
+
+# Documentation (not needed in production)
+ANALYSIS*.md
+BACKUP*.md
+BROWSER*.md
+CHUNK*.md
+CLEANUP*.md
+COMPRESSION*.md
+CORS*.md
+CRITICAL*.md
+DEBUG*.md
+DEPLOY*.md
+EMAIL*.md
+EXAMPLE*.md
+FACE*.md
+FAST*.md
+FFMPEG*.md
+FILM*.md
+FINAL*.md
+FIX*.md
+FREE*.md
+GEMINI*.md
+GIT*.md
+HOW*.md
+IMPROVEMENTS*.md
+MONTAGE*.md
+NEXT*.md
+PARALLEL*.md
+PLAN*.md
+PROBLEM*.md
+PROMPT*.md
+PYSCENE*.md
+QUICK*.md
+README_*.md
+READY*.md
+REPLICATE*.md
+RESTART*.md
+RESTORE*.md
+SCENE*.md
+SCRIPT*.md
+SDK*.md
+SEQUENTIAL*.md
+SERVER*.md
+SESSION*.md
+SETUP*.md
+SOLUTION*.md
+START*.md
+SUMMARY*.md
+SUPABASE*.md
+TRANSFER*.md
+TUS*.md
+UPDATE*.md
+VERCEL*.md
+VIDEO*.md
+XHR*.md
+*.docx
+*.sql

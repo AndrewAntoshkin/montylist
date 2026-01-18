@@ -340,6 +340,9 @@ export default function HomeClient({ user, recentVideos = [], filmMetadata }: Ho
                     <p className="text-xs leading-[1.17] text-[#626262]">
                       Максимальный размер видео 500mb
                     </p>
+                    <p className="text-xs leading-[1.17] text-[#626262]">
+                      На видео должен быть наложен EDL
+                    </p>
                   </div>
                 </div>
               </div>

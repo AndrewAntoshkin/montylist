@@ -11,6 +11,7 @@ import type { User } from '@supabase/supabase-js';
 import TwoStepUploadModal from './TwoStepUploadModal';
 import UploadModalV3 from './UploadModalV3';
 import UploadModalV4 from './UploadModalV4';
+import UploadModalV5 from './UploadModalV5';
 import Header from './Header';
 
 interface DashboardClientProps {
@@ -33,6 +34,7 @@ export default function DashboardClient({
   });
   const [isV3ModalOpen, setIsV3ModalOpen] = useState(false);
   const [isV4ModalOpen, setIsV4ModalOpen] = useState(false);
+  const [isV5ModalOpen, setIsV5ModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<TabType>('ready');
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const router = useRouter();
@@ -268,6 +270,16 @@ export default function DashboardClient({
                   Создать
                 </span>
               </button>
+              
+              {/* V5 BETA — улучшенная архитектура */}
+              <button
+                onClick={() => setIsV5ModalOpen(true)}
+                className="h-9 px-3 py-2.5 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-lg flex items-center justify-center hover:from-cyan-600 hover:to-blue-600 transition-colors"
+              >
+                <span className="text-white text-sm font-medium leading-none tracking-[-0.3962px]">
+                  Создать beta
+                </span>
+              </button>
             </div>
           </div>
 
@@ -447,6 +459,15 @@ export default function DashboardClient({
       {isV4ModalOpen && (
         <UploadModalV4
           onClose={() => setIsV4ModalOpen(false)}
+          onUploadComplete={handleUploadComplete}
+          userId={user.id}
+        />
+      )}
+
+      {/* V5 BETA Modal (Improved Architecture) */}
+      {isV5ModalOpen && (
+        <UploadModalV5
+          onClose={() => setIsV5ModalOpen(false)}
           onUploadComplete={handleUploadComplete}
           userId={user.id}
         />
