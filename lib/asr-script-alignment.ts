@@ -178,17 +178,20 @@ export function groupWordsIntoSegments(words: ASRWord[]): ASRSegment[] {
   let currentSegment: ASRSegment | null = null;
   
   for (const word of words) {
+    // Пропускаем слова без текста
+    if (!word.text) continue;
+    
     const speaker = word.speaker || 'UNKNOWN';
     
     if (!currentSegment || currentSegment.speakerId !== speaker) {
       // Завершаем текущий сегмент
-      if (currentSegment && currentSegment.text.trim()) {
+      if (currentSegment && currentSegment.text?.trim()) {
         segments.push(currentSegment);
       }
       
       // Начинаем новый
       currentSegment = {
-        text: word.text,
+        text: word.text || '',
         speakerId: speaker,
         startMs: word.startMs,
         endMs: word.endMs,
@@ -197,7 +200,7 @@ export function groupWordsIntoSegments(words: ASRWord[]): ASRSegment[] {
       };
     } else {
       // Добавляем к текущему
-      currentSegment.text += ' ' + word.text;
+      currentSegment.text += ' ' + (word.text || '');
       currentSegment.endMs = word.endMs;
       currentSegment.words?.push(word);
     }
