@@ -26,17 +26,14 @@ import type { FaceCluster } from '@/lib/face-types';
 export const maxDuration = 300;
 export const dynamic = 'force-dynamic';
 
-// Types
+// Types — must match lib/credits-detector.ts MergedScene (snake_case)
 interface MergedScene {
-  planNumber: number;
-  startTimecode: string;
-  endTimecode: string;
-  startTimestamp: number;
-  endTimestamp: number;
-  duration: number;
-  isMerged?: boolean;
-  mergedCount?: number;
-  isCredits?: boolean;
+  start_timecode: string;
+  end_timecode: string;
+  start_timestamp: number;
+  end_timestamp: number;
+  type: 'opening_credits' | 'closing_credits' | 'regular';
+  originalScenesCount: number;
 }
 
 interface ASRWord {
@@ -125,10 +122,10 @@ export async function POST(request: NextRequest) {
     const chunkStartMs = parseTimecodeToMs(startTimecode);
     const chunkEndMs = parseTimecodeToMs(endTimecode);
     
-    // Get scenes in this chunk
+    // Get scenes in this chunk (using snake_case from credits-detector)
     const scenesInChunk = mergedScenes.filter(
-      s => s.startTimestamp * 1000 >= chunkStartMs - 500 && 
-           s.startTimestamp * 1000 < chunkEndMs + 500
+      s => s.start_timestamp * 1000 >= chunkStartMs - 500 && 
+           s.start_timestamp * 1000 < chunkEndMs + 500
     );
     console.log(`   Scenes in chunk: ${scenesInChunk.length}`);
     
@@ -180,9 +177,10 @@ export async function POST(request: NextRequest) {
     
     const planDialogues: Map<number, DialogueLine[]> = new Map();
     
-    for (const scene of scenesInChunk) {
-      const sceneStartMs = scene.startTimestamp * 1000;
-      const sceneEndMs = scene.endTimestamp * 1000;
+    for (let sceneIndex = 0; sceneIndex < scenesInChunk.length; sceneIndex++) {
+      const scene = scenesInChunk[sceneIndex];
+      const sceneStartMs = scene.start_timestamp * 1000;
+      const sceneEndMs = scene.end_timestamp * 1000;
       
       // Get words in this scene
       const wordsInScene = fullDiarizationWords.filter(
@@ -233,7 +231,7 @@ export async function POST(request: NextRequest) {
         dialogues.push(currentDialogue);
       }
       
-      planDialogues.set(scene.planNumber, dialogues);
+      planDialogues.set(sceneIndex, dialogues);
     }
     
     console.log(`   Built dialogues for ${planDialogues.size} scenes`);
@@ -245,14 +243,14 @@ export async function POST(request: NextRequest) {
     
     let plansCreated = 0;
     
-    for (const scene of scenesInChunk) {
-      // Get Gemini description for this plan
-      const geminiPlan = geminiResponse?.plans?.find(
-        (p: any) => p.planNumber === scene.planNumber
-      );
+    for (let sceneIndex = 0; sceneIndex < scenesInChunk.length; sceneIndex++) {
+      const scene = scenesInChunk[sceneIndex];
+      
+      // Get Gemini description for this plan (by index)
+      const geminiPlan = geminiResponse?.plans?.[sceneIndex];
       
       // Get dialogues for this plan
-      const dialogues = planDialogues.get(scene.planNumber) || [];
+      const dialogues = planDialogues.get(sceneIndex) || [];
       
       // Format dialogues
       const dialogueText = dialogues
@@ -262,16 +260,16 @@ export async function POST(request: NextRequest) {
         })
         .join('\n\n');
       
-      // Create entry
+      // Create entry (using snake_case fields from MergedScene)
       const entryData = {
         sheet_id: sheetId,
-        shot_no: scene.planNumber,
-        start_tc: scene.startTimecode,
-        end_tc: scene.endTimecode,
+        shot_no: sceneIndex + 1, // Generate plan number from index
+        start_tc: scene.start_timecode,
+        end_tc: scene.end_timecode,
         plan_type: geminiPlan?.planType || 'Ср.',
         description: geminiPlan?.description || '',
         dialogues: dialogueText || null,
-        duration: scene.duration,
+        duration: scene.end_timestamp - scene.start_timestamp,
         // V5 metadata
         processing_version: 'v5-beta',
         dialogue_source: 'asr',
@@ -357,7 +355,7 @@ function buildV5Prompt(scenes: MergedScene[], characters: any[]): string {
 - Определяй тип плана (Кр./Ср./Общ./Деталь)
 
 ПЛАНЫ ДЛЯ АНАЛИЗА:
-${scenes.map(s => `План ${s.planNumber}: ${s.startTimecode} - ${s.endTimecode}`).join('\n')}
+${scenes.map((s, i) => `План ${i + 1}: ${s.start_timecode} - ${s.end_timecode}`).join('\n')}
 
 ФОРМАТ ОТВЕТА (JSON):
 {
