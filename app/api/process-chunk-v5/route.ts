@@ -260,17 +260,18 @@ export async function POST(request: NextRequest) {
         })
         .join('\n\n');
       
-      // Create entry (using snake_case fields from MergedScene)
+      // Create entry — use same field names as V4 for compatibility
+      const planNumber = sceneIndex + 1;
       const entryData = {
         sheet_id: sheetId,
-        shot_no: sceneIndex + 1, // Generate plan number from index
-        start_tc: scene.start_timecode,
-        end_tc: scene.end_timecode,
+        plan_number: planNumber,
+        order_index: planNumber,
+        start_timecode: scene.start_timecode,
+        end_timecode: scene.end_timecode,
         plan_type: geminiPlan?.planType || 'Ср.',
         description: geminiPlan?.description || '',
-        dialogues: dialogueText || null,
-        duration: scene.end_timestamp - scene.start_timestamp,
-        // V5 metadata
+        dialogues: dialogueText || '',
+        // V5 metadata (optional columns)
         processing_version: 'v5-beta',
         dialogue_source: 'asr',
         speaker_mapped: dialogues.some(d => !!speakerCharacterMap[d.character]),
