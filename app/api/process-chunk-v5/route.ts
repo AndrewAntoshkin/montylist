@@ -129,6 +129,12 @@ export async function POST(request: NextRequest) {
     );
     console.log(`   Scenes in chunk: ${scenesInChunk.length}`);
     
+    // Calculate global plan offset (scenes before this chunk)
+    const scenesBeforeThisChunk = mergedScenes.filter(
+      s => s.start_timestamp * 1000 < chunkStartMs - 500
+    ).length;
+    console.log(`   Plan offset: ${scenesBeforeThisChunk}`);
+    
     // Get script data
     const scriptData = chunkProgress.scriptData;
     const characters = scriptData?.characters || [];
@@ -261,7 +267,8 @@ export async function POST(request: NextRequest) {
         .join('\n\n');
       
       // Create entry — use same field names as V4 for compatibility
-      const planNumber = sceneIndex + 1;
+      // Global plan number = offset + local index + 1
+      const planNumber = scenesBeforeThisChunk + sceneIndex + 1;
       const entryData = {
         sheet_id: sheetId,
         plan_number: planNumber,
@@ -281,11 +288,11 @@ export async function POST(request: NextRequest) {
       const { error: entryError } = await supabase
         .from('montage_entries')
         .upsert(entryData, {
-          onConflict: 'sheet_id,shot_no',
+          onConflict: 'sheet_id,plan_number',
         });
       
       if (entryError) {
-        console.error(`   ❌ Entry error for plan ${scene.planNumber}:`, entryError);
+        console.error(`   ❌ Entry error for plan ${planNumber}:`, entryError);
       } else {
         plansCreated++;
       }
