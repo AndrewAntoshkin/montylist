@@ -145,7 +145,8 @@ export async function POST(request: NextRequest) {
     console.log(`\n🤖 Calling Gemini for visual descriptions...`);
     
     let geminiResponse: any = null;
-    const MAX_RETRIES = 3;
+    const MAX_RETRIES = 2; // Reduced from 3 to 2 for faster failure
+    const GEMINI_TIMEOUT = 60000; // 60 seconds max per attempt
     
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
@@ -156,17 +157,25 @@ export async function POST(request: NextRequest) {
         const v5Prompt = buildV5Prompt(scenesInChunk, characters);
         
         try {
-          const output = await replicate.run(
-            "google/gemini-2.5-flash",  // Faster and cheaper for visual descriptions
-            {
-              input: {
-                prompt: v5Prompt,
-                videos: [chunkUrl],  // gemini-2.5-flash expects array
-                temperature: 0.3,
-                max_tokens: 8000,
+          // Add timeout wrapper
+          const timeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => reject(new Error('Gemini timeout after 60s')), GEMINI_TIMEOUT);
+          });
+          
+          const output = await Promise.race([
+            replicate.run(
+              "google/gemini-2.5-flash",  // Faster and cheaper for visual descriptions
+              {
+                input: {
+                  prompt: v5Prompt,
+                  videos: [chunkUrl],  // gemini-2.5-flash expects array
+                  temperature: 0.3,
+                  max_tokens: 4000, // Reduced from 8000 for faster processing
+                }
               }
-            }
-          );
+            ),
+            timeoutPromise
+          ]) as any;
           
           geminiResponse = parseGeminiOutput(output);
           console.log(`   ✅ Gemini returned ${geminiResponse?.plans?.length || 0} plan descriptions`);
@@ -178,15 +187,17 @@ export async function POST(request: NextRequest) {
       } catch (geminiError: any) {
         const isNetworkError = geminiError?.cause?.code === 'UND_ERR_SOCKET' ||
                                geminiError?.code === 'UND_ERR_HEADERS_TIMEOUT' ||
-                               geminiError?.message?.includes('fetch failed');
+                               geminiError?.message?.includes('fetch failed') ||
+                               geminiError?.message?.includes('timeout');
         
         if (isNetworkError && attempt < MAX_RETRIES) {
-          const delay = attempt * 5000; // 5s, 10s, 15s
-          console.log(`   ⚠️ Network error (attempt ${attempt}/${MAX_RETRIES}), retrying in ${delay/1000}s...`);
+          const delay = attempt * 3000; // Reduced: 3s, 6s (was 5s, 10s, 15s)
+          console.log(`   ⚠️ Network/timeout error (attempt ${attempt}/${MAX_RETRIES}), retrying in ${delay/1000}s...`);
           await new Promise(r => setTimeout(r, delay));
         } else {
-          console.error(`   ❌ Gemini error (attempt ${attempt}):`, geminiError?.message || geminiError);
+          console.log(`   ⚠️ Gemini failed after ${attempt} attempts, continuing without visual descriptions`);
           // Continue without Gemini descriptions - dialogues from ASR are more important
+          break; // Exit retry loop, continue processing
         }
       }
     }
@@ -390,14 +401,25 @@ export async function POST(request: NextRequest) {
     if (canTriggerMore) {
       const nextChunk = pendingChunks[0];
       
-      // Build base URL from request
+      // Build base URL from request (use localhost for internal calls)
       const requestUrl = new URL(request.url);
-      const baseUrl = `${requestUrl.protocol}//${requestUrl.host}`;
+      // Use localhost for internal calls to avoid network issues
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 
+                     (requestUrl.hostname === 'localhost' || requestUrl.hostname === '127.0.0.1'
+                       ? `${requestUrl.protocol}//${requestUrl.host}`
+                       : `http://localhost:${process.env.PORT || 3000}`);
       
-      // Fire and forget
+      // Fire and forget with timeout (compatible with Node.js 18+)
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5s timeout
+      
       fetch(`${baseUrl}/api/process-chunk-v5`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          // Pass internal header to avoid middleware checks
+          'x-internal-request': 'true',
+        },
         body: JSON.stringify({
           videoId,
           chunkIndex: nextChunk.index,
@@ -405,8 +427,19 @@ export async function POST(request: NextRequest) {
           startTimecode: nextChunk.startTimecode,
           endTimecode: nextChunk.endTimecode,
         }),
-      }).catch((err) => {
-        console.error(`   ❌ Failed to trigger chunk ${nextChunk.index}:`, err.message);
+        signal: controller.signal,
+      })
+      .then(() => {
+        clearTimeout(timeoutId);
+        console.log(`   ✅ Triggered chunk ${nextChunk.index + 1}`);
+      })
+      .catch((err) => {
+        clearTimeout(timeoutId);
+        // Don't log AbortError (timeout) as error - it's expected for fire-and-forget
+        if (err.name !== 'AbortError') {
+          console.error(`   ❌ Failed to trigger chunk ${nextChunk.index + 1}:`, err.message);
+        }
+        // Chunk will be picked up by another worker or manual retry
       });
     }
     
