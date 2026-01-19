@@ -327,7 +327,7 @@ export async function POST(request: NextRequest) {
               (b.dialogueCount || 0) - (a.dialogueCount || 0)
             );
           
-          const boundCount = Math.min(sortedClusters.length, mainCharacters.length, 5);
+          const boundCount = Math.min(sortedClusters.length, mainCharacters.length, 10);
           for (let i = 0; i < boundCount; i++) {
             sortedClusters[i].characterName = mainCharacters[i].name?.toUpperCase();
           }

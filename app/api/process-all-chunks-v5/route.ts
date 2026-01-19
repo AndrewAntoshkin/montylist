@@ -63,54 +63,42 @@ export async function POST(request: NextRequest) {
     
     console.log(`\n🚀 Processing ${pendingChunks.length} chunks...`);
     
+    // Fire-and-forget: trigger all chunks without waiting
+    // This prevents timeout issues with long-running chunks
     for (const chunk of pendingChunks) {
       if (!chunk.storageUrl) {
         console.log(`   ⚠️ Chunk ${chunk.index} has no storage URL, skipping`);
         continue;
       }
       
-      console.log(`\n📦 Processing chunk ${chunk.index + 1}/${chunkProgress.totalChunks}...`);
+      console.log(`   🚀 Triggering chunk ${chunk.index + 1}/${chunkProgress.totalChunks}...`);
       
-      try {
-        const response = await fetch(`${savedBaseUrl}/api/process-chunk-v5`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            videoId,
-            chunkIndex: chunk.index,
-            chunkUrl: chunk.storageUrl,
-            startTimecode: chunk.startTimecode,
-            endTimecode: chunk.endTimecode,
-          }),
-        });
-        
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          console.error(`   ❌ Chunk ${chunk.index} failed:`, errorData);
-        } else {
-          const result = await response.json();
-          console.log(`   ✅ Chunk ${chunk.index} complete: ${result.plansCreated || 0} plans`);
-        }
-        
-      } catch (chunkError) {
-        console.error(`   ❌ Chunk ${chunk.index} error:`, chunkError);
-      }
-    }
-    
-    // Finalize
-    console.log(`\n🏁 Finalizing video...`);
-    
-    try {
-      await fetch(`${savedBaseUrl}/api/finalize-processing`, {
+      // Fire-and-forget: don't await
+      fetch(`${savedBaseUrl}/api/process-chunk-v5`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ videoId }),
+        body: JSON.stringify({
+          videoId,
+          chunkIndex: chunk.index,
+          chunkUrl: chunk.storageUrl,
+          startTimecode: chunk.startTimecode,
+          endTimecode: chunk.endTimecode,
+        }),
+      }).catch(err => {
+        console.error(`   ❌ Failed to trigger chunk ${chunk.index}:`, err.message);
       });
-    } catch (finalizeError) {
-      console.error('Finalize error:', finalizeError);
+      
+      // Small delay to avoid overwhelming the server
+      await new Promise(resolve => setTimeout(resolve, 500));
     }
     
-    console.log(`\n✅ V5 BETA: All chunks processed for ${videoId}`);
+    console.log(`\n✅ All ${pendingChunks.length} chunks triggered (processing in background)`);
+    console.log(`   Monitor progress in Dashboard or terminal logs`);
+    
+    // Note: finalize will be triggered automatically when all chunks complete
+    // or can be triggered manually later
+    
+    console.log(`\n✅ V5 BETA: All chunks triggered for ${videoId}`);
     
     return NextResponse.json({
       success: true,

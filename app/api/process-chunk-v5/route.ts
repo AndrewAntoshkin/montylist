@@ -242,6 +242,19 @@ export async function POST(request: NextRequest) {
     
     console.log(`   Built dialogues for ${planDialogues.size} scenes`);
     
+    // Log sample dialogues for debugging
+    const samplePlans = Array.from(planDialogues.entries()).slice(0, 3);
+    if (samplePlans.length > 0) {
+      console.log(`\n   📋 Sample dialogues (first 3):`);
+      for (const [idx, dialogues] of samplePlans) {
+        const scene = scenesInChunk[idx];
+        const sample = dialogues.slice(0, 2).map(d => 
+          `${d.character}${d.isOffscreen ? ' ЗК' : ''}: "${d.text.slice(0, 50)}..."`
+        ).join(', ');
+        console.log(`      Plan ${idx + 1} (${scene?.start_timecode}): ${sample || '(нет диалогов)'}`);
+      }
+    }
+    
     // ═══════════════════════════════════════════════════════════════════
     // STEP 3: Create montage entries
     // ═══════════════════════════════════════════════════════════════════
@@ -318,6 +331,29 @@ export async function POST(request: NextRequest) {
     console.log(`\n✅ Chunk ${chunkIndex} complete in ${processingTime}s`);
     console.log(`   Plans created: ${plansCreated}`);
     console.log(`   Progress: ${chunkProgress.completedChunks}/${chunkProgress.totalChunks}`);
+    
+    // Auto-finalize when all chunks are done
+    if (chunkProgress.completedChunks === chunkProgress.totalChunks) {
+      console.log(`\n🏁 All chunks complete! Finalizing video...`);
+      
+      try {
+        // Update video status
+        await supabase
+          .from('videos')
+          .update({ status: 'completed' })
+          .eq('id', videoId);
+        
+        // Update sheet status
+        await supabase
+          .from('montage_sheets')
+          .update({ status: 'ready' })
+          .eq('id', chunkProgress.sheetId);
+        
+        console.log(`✅ Video finalized successfully!`);
+      } catch (finalizeError) {
+        console.error(`❌ Finalize error:`, finalizeError);
+      }
+    }
     
     return NextResponse.json({
       success: true,
