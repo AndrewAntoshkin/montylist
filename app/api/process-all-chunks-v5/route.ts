@@ -1,8 +1,8 @@
 /**
  * Process All Chunks V5 — Orchestrator for V5 BETA
  * 
- * Запускает обработку всех чанков последовательно.
- * Использует speaker→character mapping из init-processing-v5.
+ * Запускает обработку чанков с ОГРАНИЧЕННОЙ параллельностью.
+ * MAX_CONCURRENT = количество API ключей в пуле (3-4).
  * 
  * @author AI Assistant
  * @version 5.0-beta
@@ -12,8 +12,59 @@ import { createServiceRoleClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
-export const maxDuration = 300;
+export const maxDuration = 900; // 15 min for ~16 chunks
 export const dynamic = 'force-dynamic';
+
+// Максимум одновременных запросов = количество API ключей
+const MAX_CONCURRENT = 3;
+
+interface ChunkResult {
+  chunkIndex: number;
+  success: boolean;
+  error?: string;
+}
+
+async function processChunk(
+  baseUrl: string,
+  videoId: string,
+  chunk: any,
+  totalChunks: number
+): Promise<ChunkResult> {
+  const chunkIndex = chunk.index;
+  
+  try {
+    console.log(`   🎬 Processing chunk ${chunkIndex + 1}/${totalChunks}...`);
+    
+    const response = await fetch(`${baseUrl}/api/process-chunk-v5`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        videoId,
+        chunkIndex: chunk.index,
+        chunkUrl: chunk.storageUrl,
+        startTimecode: chunk.startTimecode,
+        endTimecode: chunk.endTimecode,
+      }),
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `HTTP ${response.status}`);
+    }
+    
+    const result = await response.json();
+    console.log(`   ✅ Chunk ${chunkIndex + 1} done: ${result.plansCreated || 0} plans`);
+    
+    return { chunkIndex, success: true };
+  } catch (error) {
+    console.error(`   ❌ Chunk ${chunkIndex + 1} failed:`, error);
+    return { 
+      chunkIndex, 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Unknown error' 
+    };
+  }
+}
 
 export async function POST(request: NextRequest) {
   const requestUrl = new URL(request.url);
@@ -32,6 +83,7 @@ export async function POST(request: NextRequest) {
     console.log(`\n${'═'.repeat(60)}`);
     console.log(`🎬 V5 BETA: Process All Chunks — ${videoId}`);
     console.log(`${'═'.repeat(60)}`);
+    console.log(`   Max concurrent: ${MAX_CONCURRENT} (matching API key pool)`);
     
     const supabase = createServiceRoleClient();
     
@@ -56,54 +108,54 @@ export async function POST(request: NextRequest) {
     console.log(`   Speaker→Character mappings: ${Object.keys(chunkProgress.speakerCharacterMap || {}).length}`);
     console.log(`   Architecture: ${chunkProgress.architecture}`);
     
-    // Process chunks sequentially
+    // Get pending chunks
     const pendingChunks = chunkProgress.chunks.filter(
-      (c: any) => c.status === 'ready' || c.status === 'pending'
+      (c: any) => (c.status === 'ready' || c.status === 'pending') && c.storageUrl
     );
     
-    console.log(`\n🚀 Processing ${pendingChunks.length} chunks...`);
+    console.log(`\n🚀 Processing ${pendingChunks.length} chunks (max ${MAX_CONCURRENT} parallel)...`);
     
-    // Fire-and-forget: trigger all chunks without waiting
-    // This prevents timeout issues with long-running chunks
-    for (const chunk of pendingChunks) {
-      if (!chunk.storageUrl) {
-        console.log(`   ⚠️ Chunk ${chunk.index} has no storage URL, skipping`);
-        continue;
-      }
+    // Process chunks with limited concurrency
+    const results: ChunkResult[] = [];
+    
+    for (let i = 0; i < pendingChunks.length; i += MAX_CONCURRENT) {
+      const batch = pendingChunks.slice(i, i + MAX_CONCURRENT);
+      const batchNum = Math.floor(i / MAX_CONCURRENT) + 1;
+      const totalBatches = Math.ceil(pendingChunks.length / MAX_CONCURRENT);
       
-      console.log(`   🚀 Triggering chunk ${chunk.index + 1}/${chunkProgress.totalChunks}...`);
+      console.log(`\n📦 Batch ${batchNum}/${totalBatches} (chunks ${i + 1}-${Math.min(i + MAX_CONCURRENT, pendingChunks.length)})`);
       
-      // Fire-and-forget: don't await
-      fetch(`${savedBaseUrl}/api/process-chunk-v5`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          videoId,
-          chunkIndex: chunk.index,
-          chunkUrl: chunk.storageUrl,
-          startTimecode: chunk.startTimecode,
-          endTimecode: chunk.endTimecode,
-        }),
-      }).catch(err => {
-        console.error(`   ❌ Failed to trigger chunk ${chunk.index}:`, err.message);
-      });
+      // Process batch in parallel
+      const batchResults = await Promise.all(
+        batch.map(chunk => 
+          processChunk(savedBaseUrl, videoId, chunk, chunkProgress.totalChunks)
+        )
+      );
       
-      // Small delay to avoid overwhelming the server
-      await new Promise(resolve => setTimeout(resolve, 500));
+      results.push(...batchResults);
     }
     
-    console.log(`\n✅ All ${pendingChunks.length} chunks triggered (processing in background)`);
-    console.log(`   Monitor progress in Dashboard or terminal logs`);
+    // Summary
+    const successful = results.filter(r => r.success).length;
+    const failed = results.filter(r => !r.success).length;
     
-    // Note: finalize will be triggered automatically when all chunks complete
-    // or can be triggered manually later
-    
-    console.log(`\n✅ V5 BETA: All chunks triggered for ${videoId}`);
+    console.log(`\n${'═'.repeat(60)}`);
+    console.log(`📊 V5 BETA COMPLETE`);
+    console.log(`${'═'.repeat(60)}`);
+    console.log(`   ✅ Successful: ${successful}/${pendingChunks.length}`);
+    if (failed > 0) {
+      console.log(`   ❌ Failed: ${failed}`);
+      results.filter(r => !r.success).forEach(r => {
+        console.log(`      Chunk ${r.chunkIndex}: ${r.error}`);
+      });
+    }
     
     return NextResponse.json({
-      success: true,
+      success: failed === 0,
       videoId,
-      processedChunks: pendingChunks.length,
+      processedChunks: successful,
+      failedChunks: failed,
+      results,
     });
     
   } catch (error) {
