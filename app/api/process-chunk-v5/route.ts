@@ -219,6 +219,12 @@ export async function POST(request: NextRequest) {
         w => w.startMs >= sceneStartMs - 500 && w.endMs <= sceneEndMs + 500
       );
       
+      // Log scene info for debugging (only for problematic timecodes)
+      const sceneTimecode = `${Math.floor(sceneStartMs / 60000)}:${Math.floor((sceneStartMs % 60000) / 1000)}:${Math.floor((sceneStartMs % 1000) / 10)}`;
+      if (sceneTimecode.includes('15:01') || sceneTimecode.includes('15:02') || sceneTimecode.includes('15:03') || sceneTimecode.includes('15:04')) {
+        console.log(`   🔍 Scene ${sceneIndex} (${sceneTimecode}): ${wordsInScene.length} words before filtering`);
+      }
+      
       // Filter out false positives (music, credits, background noise)
       const FALSE_POSITIVE_PATTERNS = [
         /^музыка/i,           // Changed from /^музыка$/i to catch "МУЗЫКА...."
@@ -272,6 +278,13 @@ export async function POST(request: NextRequest) {
       for (const word of wordsInScene) {
         const speaker = word.speaker || 'UNKNOWN';
         const character = speakerCharacterMap[speaker] || speaker;
+        
+        // Log mapping for debugging (only for problematic timecodes)
+        const isProblematicTime = word.startMs >= 15 * 60 * 1000 && word.startMs <= 15 * 60 * 1000 + 5 * 1000;
+        if (isProblematicTime || sceneTimecode.includes('15:01') || sceneTimecode.includes('15:02')) {
+          const isMapped = !!speakerCharacterMap[speaker];
+          console.log(`   🔍 Word "${word.text?.slice(0, 20)}" (${speaker} → ${character}, mapped: ${isMapped})`);
+        }
         
         // Check face presence for ЗК
         // ВАЖНО: ЗК только если у персонажа ЕСТЬ привязанное лицо И его нет в кадре
@@ -346,6 +359,14 @@ export async function POST(request: NextRequest) {
       }
       
       planDialogues.set(sceneIndex, dialogues);
+      
+      // Log empty scenes for debugging
+      if (dialogues.length === 0 && wordsInScene.length > 0) {
+        const sceneTimecode = `${Math.floor(sceneStartMs / 60000)}:${Math.floor((sceneStartMs % 60000) / 1000)}:${Math.floor((sceneStartMs % 1000) / 10)}`;
+        if (sceneTimecode.includes('15:01') || sceneTimecode.includes('15:02') || sceneTimecode.includes('15:03') || sceneTimecode.includes('15:04')) {
+          console.log(`   ⚠️ Scene ${sceneIndex} (${sceneTimecode}): ${wordsInScene.length} words but 0 dialogues (filtered out?)`);
+        }
+      }
     }
     
     console.log(`   Built dialogues for ${planDialogues.size} scenes`);
