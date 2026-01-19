@@ -335,34 +335,34 @@ export async function POST(request: NextRequest) {
     
     console.log(`   ✅ Created ${plansCreated} entries`);
     
+    const processingTime = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.log(`\n✅ Chunk ${chunkIndex} complete in ${processingTime}s`);
+    console.log(`   Plans created: ${plansCreated}`);
+    
     // ═══════════════════════════════════════════════════════════════════
-    // STEP 4: Update chunk progress
+    // STEP 5: Trigger next chunk or finalize (with race condition protection)
     // ═══════════════════════════════════════════════════════════════════
-    chunkProgress.chunks[chunkIndex].status = 'completed';
-    chunkProgress.completedChunks = chunkProgress.chunks.filter(
+    
+    // RE-READ fresh state to avoid race conditions
+    const { data: freshVideo } = await supabase
+      .from('videos')
+      .select('chunk_progress_json')
+      .eq('id', videoId)
+      .single();
+    
+    const freshProgress = freshVideo?.chunk_progress_json || chunkProgress;
+    
+    // Update our chunk as completed in fresh state
+    freshProgress.chunks[chunkIndex].status = 'completed';
+    freshProgress.completedChunks = freshProgress.chunks.filter(
       (c: any) => c.status === 'completed'
     ).length;
     
-    await supabase
-      .from('videos')
-      .update({ chunk_progress_json: chunkProgress })
-      .eq('id', videoId);
-    
-    const processingTime = ((Date.now() - startTime) / 1000).toFixed(1);
-    
-    console.log(`\n✅ Chunk ${chunkIndex} complete in ${processingTime}s`);
-    console.log(`   Plans created: ${plansCreated}`);
-    console.log(`   Progress: ${chunkProgress.completedChunks}/${chunkProgress.totalChunks}`);
-    
-    // ═══════════════════════════════════════════════════════════════════
-    // STEP 5: Trigger next chunk or finalize
-    // ═══════════════════════════════════════════════════════════════════
-    
-    // Check for pending chunks and trigger next one
-    const pendingChunks = chunkProgress.chunks.filter(
+    // Check for pending chunks
+    const pendingChunks = freshProgress.chunks.filter(
       (c: any) => (c.status === 'ready' || c.status === 'pending') && c.storageUrl
     );
-    const inProgressChunks = chunkProgress.chunks.filter(
+    const inProgressChunks = freshProgress.chunks.filter(
       (c: any) => c.status === 'in_progress'
     );
     
@@ -374,12 +374,21 @@ export async function POST(request: NextRequest) {
       const nextChunk = pendingChunks[0];
       console.log(`\n🔄 Triggering next chunk ${nextChunk.index + 1} (${pendingChunks.length} pending)...`);
       
-      // Mark as in_progress
-      chunkProgress.chunks[nextChunk.index].status = 'in_progress';
-      await supabase
-        .from('videos')
-        .update({ chunk_progress_json: chunkProgress })
-        .eq('id', videoId);
+      // Mark as in_progress BEFORE saving to prevent race condition
+      freshProgress.chunks[nextChunk.index].status = 'in_progress';
+    }
+    
+    // Save updated progress (atomic update)
+    await supabase
+      .from('videos')
+      .update({ chunk_progress_json: freshProgress })
+      .eq('id', videoId);
+    
+    console.log(`   Progress: ${freshProgress.completedChunks}/${freshProgress.totalChunks}`);
+    
+    // Now trigger if needed (after DB is updated)
+    if (canTriggerMore) {
+      const nextChunk = pendingChunks[0];
       
       // Build base URL from request
       const requestUrl = new URL(request.url);
