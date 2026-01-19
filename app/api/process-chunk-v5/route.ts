@@ -140,40 +140,55 @@ export async function POST(request: NextRequest) {
     const characters = scriptData?.characters || [];
     
     // ═══════════════════════════════════════════════════════════════════
-    // STEP 1: Call Gemini for visual description ONLY
+    // STEP 1: Call Gemini for visual description ONLY (with retry)
     // ═══════════════════════════════════════════════════════════════════
     console.log(`\n🤖 Calling Gemini for visual descriptions...`);
     
     let geminiResponse: any = null;
+    const MAX_RETRIES = 3;
     
-    try {
-      const replicatePool = getReplicatePool();
-      const { client: replicate, release } = await replicatePool.getLeastLoadedClient();
-      
-      // V5 prompt: ТОЛЬКО описание и тип плана, НЕ диалоги
-      const v5Prompt = buildV5Prompt(scenesInChunk, characters);
-      
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
-        const output = await replicate.run(
-          "google/gemini-3-pro",  // Same model as V4
-          {
-            input: {
-              prompt: v5Prompt,
-              video: chunkUrl,
-              temperature: 0.3,
-              max_tokens: 8000,
-            }
-          }
-        );
+        const replicatePool = getReplicatePool();
+        const { client: replicate, release } = await replicatePool.getLeastLoadedClient();
         
-        geminiResponse = parseGeminiOutput(output);
-        console.log(`   ✅ Gemini returned ${geminiResponse?.plans?.length || 0} plan descriptions`);
-      } finally {
-        release(); // Always release the client
+        // V5 prompt: ТОЛЬКО описание и тип плана, НЕ диалоги
+        const v5Prompt = buildV5Prompt(scenesInChunk, characters);
+        
+        try {
+          const output = await replicate.run(
+            "google/gemini-3-pro",  // Same model as V4
+            {
+              input: {
+                prompt: v5Prompt,
+                video: chunkUrl,
+                temperature: 0.3,
+                max_tokens: 8000,
+              }
+            }
+          );
+          
+          geminiResponse = parseGeminiOutput(output);
+          console.log(`   ✅ Gemini returned ${geminiResponse?.plans?.length || 0} plan descriptions`);
+          break; // Success, exit retry loop
+        } finally {
+          release(); // Always release the client
+        }
+        
+      } catch (geminiError: any) {
+        const isNetworkError = geminiError?.cause?.code === 'UND_ERR_SOCKET' ||
+                               geminiError?.code === 'UND_ERR_HEADERS_TIMEOUT' ||
+                               geminiError?.message?.includes('fetch failed');
+        
+        if (isNetworkError && attempt < MAX_RETRIES) {
+          const delay = attempt * 5000; // 5s, 10s, 15s
+          console.log(`   ⚠️ Network error (attempt ${attempt}/${MAX_RETRIES}), retrying in ${delay/1000}s...`);
+          await new Promise(r => setTimeout(r, delay));
+        } else {
+          console.error(`   ❌ Gemini error (attempt ${attempt}):`, geminiError?.message || geminiError);
+          // Continue without Gemini descriptions - dialogues from ASR are more important
+        }
       }
-      
-    } catch (geminiError) {
-      console.error(`   ❌ Gemini error:`, geminiError);
     }
     
     // ═══════════════════════════════════════════════════════════════════
