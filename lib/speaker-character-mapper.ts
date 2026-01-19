@@ -274,6 +274,24 @@ export class SpeakerCharacterMapper {
     }
   }
   
+  /**
+   * Получает текущий маппинг как Map
+   */
+  getMapping(): Map<string, string> {
+    const result = new Map<string, string>();
+    for (const [speakerId, mapping] of this.mappings) {
+      result.set(speakerId, mapping.characterName);
+    }
+    return result;
+  }
+  
+  /**
+   * Устанавливает ручной маппинг (алиас для forceMapping)
+   */
+  setManualMapping(speakerId: string, characterName: string): void {
+    this.forceMapping(speakerId, characterName);
+  }
+  
   // ═══════════════════════════════════════════════════════════════════════════
   // ПРИВАТНЫЕ МЕТОДЫ
   // ═══════════════════════════════════════════════════════════════════════════

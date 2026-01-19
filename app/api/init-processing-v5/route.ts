@@ -300,6 +300,51 @@ export async function POST(request: NextRequest) {
     }
 
     // ═══════════════════════════════════════════════════════════════════
+    // STEP 3.5: Voice Embeddings (для уточнения speaker→character)
+    // ═══════════════════════════════════════════════════════════════════
+    const USE_VOICE_EMBEDDINGS = process.env.USE_VOICE_EMBEDDINGS === 'true';
+    
+    if (USE_VOICE_EMBEDDINGS && fullDiarizationWords.length > 0) {
+      console.log(`\n🎤 STEP 3.5: Voice Embeddings...`);
+      
+      try {
+        const { createVoiceEmbeddings, refineSpeakerMapping } = await import('@/lib/voice-embeddings');
+        
+        const voiceResult = await createVoiceEmbeddings(
+          originalVideoPath,
+          fullDiarizationWords as any[]
+        );
+        
+        if (voiceResult.embeddings && Object.keys(voiceResult.embeddings).length > 0) {
+          console.log(`   ✅ Created voice embeddings for ${voiceResult.speaker_count} speakers`);
+          
+          // Сохраняем embeddings для будущего использования
+          chunkProgress.voiceEmbeddings = voiceResult.embeddings;
+          
+          // Если есть matches — уточняем маппинг
+          if (voiceResult.matches) {
+            const currentMapping = speakerCharacterMapper.getMapping();
+            const refinedMapping = refineSpeakerMapping(
+              Object.fromEntries(currentMapping),
+              voiceResult.matches,
+              0.8  // confidence threshold
+            );
+            
+            // Применяем уточнённый маппинг
+            for (const [speakerId, characterName] of Object.entries(refinedMapping)) {
+              speakerCharacterMapper.setManualMapping(speakerId, characterName);
+            }
+          }
+        }
+      } catch (voiceError) {
+        console.error(`   ❌ Voice embeddings failed:`, voiceError);
+        console.log(`   Continuing without voice embeddings...`);
+      }
+    } else if (!USE_VOICE_EMBEDDINGS) {
+      console.log(`\n🎤 STEP 3.5: Voice Embeddings skipped (USE_VOICE_EMBEDDINGS=false)`);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
     // STEP 4: Face Recognition (optional)
     // ═══════════════════════════════════════════════════════════════════
     let faceClusters: FaceCluster[] = [];
