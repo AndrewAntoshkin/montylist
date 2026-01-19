@@ -55,8 +55,9 @@ export interface AlignmentResult {
 // КОНСТАНТЫ
 // ═══════════════════════════════════════════════════════════════════════════
 
-const MIN_FUZZY_SIMILARITY = 0.6;  // Минимальное сходство для fuzzy match
+const MIN_FUZZY_SIMILARITY = 0.55;  // СНИЖЕН для лучшего покрытия (был 0.6)
 const ANCHOR_SIMILARITY = 0.85;    // Сходство для якоря
+const FORCED_ALIGNMENT_SIMILARITY = 0.95; // Очень высокое сходство = принудительный матч
 const MAX_SCRIPT_JUMP = 20;        // Максимальный прыжок по сценарию (порядковость)
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -101,7 +102,11 @@ export function alignASRToScript(
       
       const similarity = calculateSimilarity(asrText, scriptText);
       
-      if (similarity >= ANCHOR_SIMILARITY) {
+      // Принудительный матч для очень высокого сходства (>95%) - сразу фиксируем
+      if (similarity >= FORCED_ALIGNMENT_SIMILARITY) {
+        bestMatch = { scriptIdx, similarity, type: 'exact' };
+        break; // Прерываем поиск - это точный матч
+      } else if (similarity >= ANCHOR_SIMILARITY) {
         // Это якорь!
         if (!bestMatch || similarity > bestMatch.similarity) {
           bestMatch = { scriptIdx, similarity, type: 'anchor' };

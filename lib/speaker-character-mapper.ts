@@ -192,16 +192,29 @@ export class SpeakerCharacterMapper {
       }
       
       // Создаём маппинг
-      // Улучшенная логика блокировки:
+      // Улучшенная логика блокировки для ТОЧНОСТИ:
       // 1. Высокая уверенность + достаточно доказательств
-      // 2. ИЛИ много alignment совпадений (>=3) даже при меньшей уверенности
+      // 2. ИЛИ много alignment совпадений (>=2) даже при меньшей уверенности
+      // 3. ИЛИ очень сильное alignment (>=3 совпадений) = принудительная фиксация
       const alignmentMatches = sources.filter(s => s.type === 'alignment').length;
+      const alignmentSources = sources.filter(s => s.type === 'alignment');
+      const avgAlignmentScore = alignmentSources.length > 0
+        ? alignmentSources.reduce((sum, s) => sum + s.weight, 0) / alignmentSources.length
+        : 0;
+      
       const hasStrongAlignment = alignmentMatches >= MIN_ALIGNMENT_MATCHES;
+      const hasVeryStrongAlignment = alignmentMatches >= 3; // 3+ совпадений = принудительная фиксация
       const hasEnoughEvidence = sources.length >= MIN_EVIDENCE_TO_LOCK;
       const hasHighConfidence = confidence >= MIN_CONFIDENCE_TO_LOCK;
+      const hasHighAlignmentScore = avgAlignmentScore > 2.5; // Высокий средний вес alignment
       
-      const locked = (hasHighConfidence && hasEnoughEvidence) || 
-                    (hasStrongAlignment && confidence >= 0.5); // Lower threshold if strong alignment
+      // Более агрессивная фиксация для точности:
+      // - 3+ alignment совпадений = всегда lock
+      // - 2+ alignment совпадений + высокая уверенность = lock
+      // - Высокий средний вес alignment = lock
+      const locked = hasVeryStrongAlignment || 
+                    (hasStrongAlignment && (hasHighConfidence || hasHighAlignmentScore)) ||
+                    (hasHighConfidence && hasEnoughEvidence);
       
       const mapping: SpeakerCharacterMapping = {
         speakerId,
