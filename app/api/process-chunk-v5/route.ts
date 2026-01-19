@@ -215,9 +215,44 @@ export async function POST(request: NextRequest) {
       const sceneEndMs = scene.end_timestamp * 1000;
       
       // Get words in this scene
-      const wordsInScene = fullDiarizationWords.filter(
+      let wordsInScene = fullDiarizationWords.filter(
         w => w.startMs >= sceneStartMs - 500 && w.endMs <= sceneEndMs + 500
       );
+      
+      // Filter out false positives (music, credits, background noise)
+      const FALSE_POSITIVE_PATTERNS = [
+        /^музыка$/i,
+        /^динамичн/i,
+        /^наслаждай/i,
+        /^титр/i,
+        /^автор/i,
+        /^режиссер/i,
+        /^оператор/i,
+        /^продюсер/i,
+        /^телекомпания/i,
+        /^партнер/i,
+        /^домашний/i,
+        /^представляет/i,
+        /^логотип/i,
+        /^заставка/i,
+      ];
+      
+      wordsInScene = wordsInScene.filter(w => {
+        const text = (w.text || '').trim();
+        if (!text || text.length < 2) return false;
+        
+        // Filter single words that match false positive patterns
+        if (FALSE_POSITIVE_PATTERNS.some(pattern => pattern.test(text))) {
+          return false;
+        }
+        
+        // Filter very short words that are likely noise
+        if (text.length <= 2 && !/[а-яё]/i.test(text)) {
+          return false;
+        }
+        
+        return true;
+      });
       
       // Group by speaker
       const dialogues: DialogueLine[] = [];
@@ -229,6 +264,7 @@ export async function POST(request: NextRequest) {
         
         // Check face presence for ЗК
         // ВАЖНО: ЗК только если у персонажа ЕСТЬ привязанное лицо И его нет в кадре
+        // И только если уверенность высокая (>0.7)
         let isOffscreen = false;
         if (faceClusters.length > 0) {
           // Проверяем, есть ли у этого персонажа привязанное лицо
@@ -243,15 +279,28 @@ export async function POST(request: NextRequest) {
                 return [faceCluster?.clusterId || k, v];
               }))
             );
-            // ЗК только если явно OFFSCREEN (не AMBIGUOUS)
-            isOffscreen = facePresence.status === 'OFFSCREEN';
+            // ЗК только если:
+            // 1. Явно OFFSCREEN (не AMBIGUOUS)
+            // 2. Высокая уверенность (>0.7)
+            // 3. Нет других лиц в кадре (чтобы не путать с диалогом между персонажами)
+            const hasOtherFaces = facePresence.facesInWindow.length > 1;
+            isOffscreen = facePresence.status === 'OFFSCREEN' && 
+                         facePresence.confidence > 0.7 && 
+                         !hasOtherFaces;
           }
           // Если у персонажа нет привязанного лица — НЕ ставим ЗК (неизвестно)
         }
         
         if (!currentDialogue || currentDialogue.character !== character) {
+          // Сохраняем предыдущий диалог только если он валидный
           if (currentDialogue && currentDialogue.text.trim()) {
-            dialogues.push(currentDialogue);
+            const dialogueText = currentDialogue.text.trim();
+            // Фильтруем слишком короткие диалоги (< 3 символов) и ложные паттерны
+            const isValidDialogue = dialogueText.length >= 3 && 
+                                   !FALSE_POSITIVE_PATTERNS.some(pattern => pattern.test(dialogueText));
+            if (isValidDialogue) {
+              dialogues.push(currentDialogue);
+            }
           }
           currentDialogue = {
             character,
@@ -266,8 +315,14 @@ export async function POST(request: NextRequest) {
         }
       }
       
+      // Финальная проверка последнего диалога
       if (currentDialogue && currentDialogue.text.trim()) {
-        dialogues.push(currentDialogue);
+        const dialogueText = currentDialogue.text.trim();
+        const isValidDialogue = dialogueText.length >= 3 && 
+                               !FALSE_POSITIVE_PATTERNS.some(pattern => pattern.test(dialogueText));
+        if (isValidDialogue) {
+          dialogues.push(currentDialogue);
+        }
       }
       
       planDialogues.set(sceneIndex, dialogues);

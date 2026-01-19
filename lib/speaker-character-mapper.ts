@@ -61,15 +61,16 @@ export interface MappingConflict {
 // ═══════════════════════════════════════════════════════════════════════════
 
 const EVIDENCE_WEIGHTS = {
-  alignment: 1.5,       // ASR↔Script alignment — УСИЛЕН (был 1.0)
-  voice_embedding: 0.9, // Voice embeddings
+  alignment: 2.0,       // ASR↔Script alignment — ЕЩЁ УСИЛЕН (был 1.5)
+  voice_embedding: 1.2, // Voice embeddings — УСИЛЕН (был 0.9)
+  name_mention: 1.0,    // Упоминание имени рядом — УСИЛЕН (был 0.8)
   face_presence: 0.7,   // Лицо в кадре во время речи
-  name_mention: 0.8,    // Упоминание имени рядом
   gemini_hint: 0.3,     // Gemini сказал "кто говорит" (слабый)
 };
 
-const MIN_CONFIDENCE_TO_LOCK = 0.6;  // Снижен (был 0.7) для более агрессивной фиксации
-const MIN_EVIDENCE_TO_LOCK = 2;      // Снижен (был 3) — 2 хороших совпадения = lock
+const MIN_CONFIDENCE_TO_LOCK = 0.65;  // Немного повышен для стабильности
+const MIN_EVIDENCE_TO_LOCK = 2;        // 2 хороших совпадения = lock
+const MIN_ALIGNMENT_MATCHES = 3;       // Минимум совпадений alignment для lock
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ОСНОВНОЙ КЛАСС
@@ -191,13 +192,24 @@ export class SpeakerCharacterMapper {
       }
       
       // Создаём маппинг
+      // Улучшенная логика блокировки:
+      // 1. Высокая уверенность + достаточно доказательств
+      // 2. ИЛИ много alignment совпадений (>=3) даже при меньшей уверенности
+      const alignmentMatches = sources.filter(s => s.type === 'alignment').length;
+      const hasStrongAlignment = alignmentMatches >= MIN_ALIGNMENT_MATCHES;
+      const hasEnoughEvidence = sources.length >= MIN_EVIDENCE_TO_LOCK;
+      const hasHighConfidence = confidence >= MIN_CONFIDENCE_TO_LOCK;
+      
+      const locked = (hasHighConfidence && hasEnoughEvidence) || 
+                    (hasStrongAlignment && confidence >= 0.5); // Lower threshold if strong alignment
+      
       const mapping: SpeakerCharacterMapping = {
         speakerId,
         characterName: bestChar,
         confidence,
         evidenceCount: sources.length,
         sources,
-        locked: confidence >= MIN_CONFIDENCE_TO_LOCK && sources.length >= MIN_EVIDENCE_TO_LOCK,
+        locked,
       };
       
       this.mappings.set(speakerId, mapping);
