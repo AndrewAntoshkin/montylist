@@ -221,7 +221,7 @@ export async function POST(request: NextRequest) {
       
       // Filter out false positives (music, credits, background noise)
       const FALSE_POSITIVE_PATTERNS = [
-        /^музыка$/i,
+        /^музыка/i,           // Changed from /^музыка$/i to catch "МУЗЫКА...."
         /^динамичн/i,
         /^наслаждай/i,
         /^титр/i,
@@ -237,12 +237,23 @@ export async function POST(request: NextRequest) {
         /^заставка/i,
       ];
       
+      // Helper to clean text for pattern matching
+      const cleanText = (text: string): string => {
+        return text
+          .trim()
+          .replace(/[.!?…]+/g, '') // Remove dots, ellipsis
+          .replace(/\s+/g, ' ')     // Normalize whitespace
+          .toLowerCase();
+      };
+      
       wordsInScene = wordsInScene.filter(w => {
         const text = (w.text || '').trim();
         if (!text || text.length < 2) return false;
         
-        // Filter single words that match false positive patterns
-        if (FALSE_POSITIVE_PATTERNS.some(pattern => pattern.test(text))) {
+        const cleaned = cleanText(text);
+        
+        // Filter words that match false positive patterns (after cleaning)
+        if (FALSE_POSITIVE_PATTERNS.some(pattern => pattern.test(cleaned))) {
           return false;
         }
         
@@ -264,13 +275,14 @@ export async function POST(request: NextRequest) {
         
         // Check face presence for ЗК
         // ВАЖНО: ЗК только если у персонажа ЕСТЬ привязанное лицо И его нет в кадре
-        // И только если уверенность высокая (>0.7)
+        // И только если уверенность высокая (>0.8) и это именно лицо этого персонажа отсутствует
         let isOffscreen = false;
         if (faceClusters.length > 0) {
           // Проверяем, есть ли у этого персонажа привязанное лицо
-          const characterHasBoundFace = faceClusters.some(fc => fc.characterName === character);
+          const characterFaceCluster = faceClusters.find(fc => fc.characterName === character);
+          const characterHasBoundFace = !!characterFaceCluster;
           
-          if (characterHasBoundFace) {
+          if (characterHasBoundFace && characterFaceCluster) {
             const facePresence = detectFacePresence(
               { startMs: word.startMs, endMs: word.endMs, speakerId: speaker },
               faceClusters,
@@ -279,14 +291,20 @@ export async function POST(request: NextRequest) {
                 return [faceCluster?.clusterId || k, v];
               }))
             );
+            
+            // Проверяем, есть ли лицо ЭТОГО персонажа в окне
+            const characterFaceInWindow = facePresence.facesInWindow.includes(characterFaceCluster.clusterId);
+            
             // ЗК только если:
             // 1. Явно OFFSCREEN (не AMBIGUOUS)
-            // 2. Высокая уверенность (>0.7)
-            // 3. Нет других лиц в кадре (чтобы не путать с диалогом между персонажами)
+            // 2. Высокая уверенность (>0.8, повышен порог)
+            // 3. Лицо ЭТОГО персонажа отсутствует в окне
+            // 4. Нет других лиц в кадре (чтобы не путать с диалогом между персонажами)
             const hasOtherFaces = facePresence.facesInWindow.length > 1;
             isOffscreen = facePresence.status === 'OFFSCREEN' && 
-                         facePresence.confidence > 0.7 && 
-                         !hasOtherFaces;
+                         facePresence.confidence > 0.8 && // Повышен порог
+                         !characterFaceInWindow &&         // Лицо персонажа отсутствует
+                         !hasOtherFaces;                   // Нет других лиц
           }
           // Если у персонажа нет привязанного лица — НЕ ставим ЗК (неизвестно)
         }
@@ -295,9 +313,10 @@ export async function POST(request: NextRequest) {
           // Сохраняем предыдущий диалог только если он валидный
           if (currentDialogue && currentDialogue.text.trim()) {
             const dialogueText = currentDialogue.text.trim();
+            const cleaned = cleanText(dialogueText);
             // Фильтруем слишком короткие диалоги (< 3 символов) и ложные паттерны
             const isValidDialogue = dialogueText.length >= 3 && 
-                                   !FALSE_POSITIVE_PATTERNS.some(pattern => pattern.test(dialogueText));
+                                   !FALSE_POSITIVE_PATTERNS.some(pattern => pattern.test(cleaned));
             if (isValidDialogue) {
               dialogues.push(currentDialogue);
             }
@@ -318,8 +337,9 @@ export async function POST(request: NextRequest) {
       // Финальная проверка последнего диалога
       if (currentDialogue && currentDialogue.text.trim()) {
         const dialogueText = currentDialogue.text.trim();
+        const cleaned = cleanText(dialogueText);
         const isValidDialogue = dialogueText.length >= 3 && 
-                               !FALSE_POSITIVE_PATTERNS.some(pattern => pattern.test(dialogueText));
+                               !FALSE_POSITIVE_PATTERNS.some(pattern => pattern.test(cleaned));
         if (isValidDialogue) {
           dialogues.push(currentDialogue);
         }
