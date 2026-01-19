@@ -332,6 +332,53 @@ export async function POST(request: NextRequest) {
     console.log(`   Plans created: ${plansCreated}`);
     console.log(`   Progress: ${chunkProgress.completedChunks}/${chunkProgress.totalChunks}`);
     
+    // ═══════════════════════════════════════════════════════════════════
+    // STEP 5: Trigger next chunk or finalize
+    // ═══════════════════════════════════════════════════════════════════
+    
+    // Check for pending chunks and trigger next one
+    const pendingChunks = chunkProgress.chunks.filter(
+      (c: any) => (c.status === 'ready' || c.status === 'pending') && c.storageUrl
+    );
+    const inProgressChunks = chunkProgress.chunks.filter(
+      (c: any) => c.status === 'in_progress'
+    );
+    
+    const MAX_CONCURRENT = 3;
+    const canTriggerMore = inProgressChunks.length < MAX_CONCURRENT && pendingChunks.length > 0;
+    
+    if (canTriggerMore) {
+      // Trigger next pending chunk (fire-and-forget)
+      const nextChunk = pendingChunks[0];
+      console.log(`\n🔄 Triggering next chunk ${nextChunk.index + 1} (${pendingChunks.length} pending)...`);
+      
+      // Mark as in_progress
+      chunkProgress.chunks[nextChunk.index].status = 'in_progress';
+      await supabase
+        .from('videos')
+        .update({ chunk_progress_json: chunkProgress })
+        .eq('id', videoId);
+      
+      // Build base URL from request
+      const requestUrl = new URL(request.url);
+      const baseUrl = `${requestUrl.protocol}//${requestUrl.host}`;
+      
+      // Fire and forget
+      fetch(`${baseUrl}/api/process-chunk-v5`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          videoId,
+          chunkIndex: nextChunk.index,
+          chunkUrl: nextChunk.storageUrl,
+          startTimecode: nextChunk.startTimecode,
+          endTimecode: nextChunk.endTimecode,
+        }),
+      }).catch((err) => {
+        console.error(`   ❌ Failed to trigger chunk ${nextChunk.index}:`, err.message);
+      });
+    }
+    
     // Auto-finalize when all chunks are done
     if (chunkProgress.completedChunks === chunkProgress.totalChunks) {
       console.log(`\n🏁 All chunks complete! Finalizing video...`);
