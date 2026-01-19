@@ -61,16 +61,16 @@ export interface MappingConflict {
 // ═══════════════════════════════════════════════════════════════════════════
 
 const EVIDENCE_WEIGHTS = {
-  alignment: 2.0,       // ASR↔Script alignment — ЕЩЁ УСИЛЕН (был 1.5)
+  alignment: 3.0,       // ASR↔Script alignment — КРИТИЧЕСКИ УСИЛЕН (был 2.0) для точности
   voice_embedding: 1.2, // Voice embeddings — УСИЛЕН (был 0.9)
   name_mention: 1.0,    // Упоминание имени рядом — УСИЛЕН (был 0.8)
   face_presence: 0.7,   // Лицо в кадре во время речи
   gemini_hint: 0.3,     // Gemini сказал "кто говорит" (слабый)
 };
 
-const MIN_CONFIDENCE_TO_LOCK = 0.65;  // Немного повышен для стабильности
+const MIN_CONFIDENCE_TO_LOCK = 0.55;  // СНИЖЕН для более агрессивной фиксации (был 0.65)
 const MIN_EVIDENCE_TO_LOCK = 2;        // 2 хороших совпадения = lock
-const MIN_ALIGNMENT_MATCHES = 3;       // Минимум совпадений alignment для lock
+const MIN_ALIGNMENT_MATCHES = 2;       // СНИЖЕН: 2 совпадения alignment = lock (был 3) для лучшего покрытия
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ОСНОВНОЙ КЛАСС

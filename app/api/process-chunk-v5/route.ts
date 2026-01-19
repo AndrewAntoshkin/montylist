@@ -254,7 +254,8 @@ export async function POST(request: NextRequest) {
       
       wordsInScene = wordsInScene.filter(w => {
         const text = (w.text || '').trim();
-        if (!text || text.length < 2) return false;
+        // СНИЖЕН порог с 2 до 1 для лучшего покрытия коротких слов
+        if (!text || text.length < 1) return false;
         
         const cleaned = cleanText(text);
         
@@ -263,8 +264,9 @@ export async function POST(request: NextRequest) {
           return false;
         }
         
-        // Filter very short words that are likely noise
-        if (text.length <= 2 && !/[а-яё]/i.test(text)) {
+        // Filter very short words that are likely noise (только не-русские)
+        // УБРАН фильтр для русских слов любой длины
+        if (text.length <= 1 && !/[а-яё]/i.test(text)) {
           return false;
         }
         
@@ -327,8 +329,9 @@ export async function POST(request: NextRequest) {
           if (currentDialogue && currentDialogue.text.trim()) {
             const dialogueText = currentDialogue.text.trim();
             const cleaned = cleanText(dialogueText);
-            // Фильтруем слишком короткие диалоги (< 3 символов) и ложные паттерны
-            const isValidDialogue = dialogueText.length >= 3 && 
+            // Фильтруем слишком короткие диалоги (< 2 символов) и ложные паттерны
+            // СНИЖЕН порог с 3 до 2 для лучшего покрытия коротких реплик
+            const isValidDialogue = dialogueText.length >= 2 && 
                                    !FALSE_POSITIVE_PATTERNS.some(pattern => pattern.test(cleaned));
             if (isValidDialogue) {
               dialogues.push(currentDialogue);
@@ -351,7 +354,8 @@ export async function POST(request: NextRequest) {
       if (currentDialogue && currentDialogue.text.trim()) {
         const dialogueText = currentDialogue.text.trim();
         const cleaned = cleanText(dialogueText);
-        const isValidDialogue = dialogueText.length >= 3 && 
+        // СНИЖЕН порог с 3 до 2 для лучшего покрытия коротких реплик
+        const isValidDialogue = dialogueText.length >= 2 && 
                                !FALSE_POSITIVE_PATTERNS.some(pattern => pattern.test(cleaned));
         if (isValidDialogue) {
           dialogues.push(currentDialogue);
