@@ -43,12 +43,15 @@ export async function POST(request: NextRequest) {
 
     console.log(`✅ Completing upload for: ${originalFilename}`);
 
-    console.log('📝 Film metadata:', filmMetadata ? JSON.stringify(filmMetadata) : 'none');
+    // Log summary only (avoid dumping entire scriptData to console)
+    if (filmMetadata) {
+      console.log(`📝 Film metadata: version=${filmMetadata.processingVersion}, architecture=${filmMetadata.architecture}`);
+    }
     
     // Log script data if present
     if (scriptData?.characters?.length > 0) {
-      console.log(`📋 Script loaded: ${scriptData.characters.length} characters`);
-      const mainChars = scriptData.characters.filter((c: any) => c.dialogueCount >= 5);
+      console.log(`📋 Script loaded: ${scriptData.characters.length} characters, ${scriptData.scriptLines?.length || 0} lines`);
+      const mainChars = scriptData.characters.filter((c: any) => c.dialogueCount >= 5).slice(0, 10);
       if (mainChars.length > 0) {
         console.log(`   🌟 Main characters: ${mainChars.map((c: any) => c.name).join(', ')}`);
       }
