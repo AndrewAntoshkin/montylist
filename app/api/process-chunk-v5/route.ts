@@ -217,18 +217,25 @@ export async function POST(request: NextRequest) {
         const character = speakerCharacterMap[speaker] || speaker;
         
         // Check face presence for ЗК
+        // ВАЖНО: ЗК только если у персонажа ЕСТЬ привязанное лицо И его нет в кадре
         let isOffscreen = false;
         if (faceClusters.length > 0) {
-          const facePresence = detectFacePresence(
-            { startMs: word.startMs, endMs: word.endMs, speakerId: speaker },
-            faceClusters,
-            new Map(Object.entries(speakerCharacterMap).map(([k, v]) => {
-              // Find face cluster for this character
-              const faceCluster = faceClusters.find(fc => fc.characterName === v);
-              return [faceCluster?.clusterId || k, v];
-            }))
-          );
-          isOffscreen = facePresence.status === 'OFFSCREEN' || facePresence.status === 'AMBIGUOUS';
+          // Проверяем, есть ли у этого персонажа привязанное лицо
+          const characterHasBoundFace = faceClusters.some(fc => fc.characterName === character);
+          
+          if (characterHasBoundFace) {
+            const facePresence = detectFacePresence(
+              { startMs: word.startMs, endMs: word.endMs, speakerId: speaker },
+              faceClusters,
+              new Map(Object.entries(speakerCharacterMap).map(([k, v]) => {
+                const faceCluster = faceClusters.find(fc => fc.characterName === v);
+                return [faceCluster?.clusterId || k, v];
+              }))
+            );
+            // ЗК только если явно OFFSCREEN (не AMBIGUOUS)
+            isOffscreen = facePresence.status === 'OFFSCREEN';
+          }
+          // Если у персонажа нет привязанного лица — НЕ ставим ЗК (неизвестно)
         }
         
         if (!currentDialogue || currentDialogue.character !== character) {
