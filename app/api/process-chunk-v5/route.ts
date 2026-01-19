@@ -157,11 +157,11 @@ export async function POST(request: NextRequest) {
         
         try {
           const output = await replicate.run(
-            "google/gemini-3-pro",  // Same model as V4
+            "google/gemini-2.5-flash",  // Faster and cheaper for visual descriptions
             {
               input: {
                 prompt: v5Prompt,
-                video: chunkUrl,
+                videos: [chunkUrl],  // gemini-2.5-flash expects array
                 temperature: 0.3,
                 max_tokens: 8000,
               }
