@@ -117,11 +117,46 @@ export async function POST(request: NextRequest) {
     const fullDiarizationWords: ASRWord[] = chunkProgress.fullDiarizationWords || [];
     console.log(`   Full diarization words: ${fullDiarizationWords.length}`);
     
+    // ЗАЩИТА ОТ ДУБЛИРОВАНИЯ: Проверяем, не обрабатывается ли чанк уже
+    const chunkInfo = chunkProgress.chunks[chunkIndex];
+    
+    if (!chunkInfo) {
+      throw new Error(`Chunk ${chunkIndex} not found in progress`);
+    }
+    
+    if (chunkInfo.status === 'completed') {
+      console.log(`   ⚠️  Chunk ${chunkIndex} already completed, skipping duplicate request...`);
+      return NextResponse.json({
+        success: true,
+        skipped: true,
+        reason: 'already_completed',
+        chunkIndex,
+      });
+    }
+    
+    if (chunkInfo.status === 'in_progress') {
+      console.log(`   ⚠️  Chunk ${chunkIndex} already in progress, skipping duplicate request...`);
+      return NextResponse.json({
+        success: true,
+        skipped: true,
+        reason: 'already_in_progress',
+        chunkIndex,
+      });
+    }
+    
+    // Помечаем как in_progress сразу, чтобы избежать race condition
+    chunkInfo.status = 'in_progress';
+    await supabase
+      .from('videos')
+      .update({ chunk_progress_json: chunkProgress })
+      .eq('id', videoId);
+    
+    console.log(`   📊 Chunk ${chunkIndex} marked as in_progress (защита от дублирования)`);
+    
     // Get merged scenes
     const mergedScenes: MergedScene[] = chunkProgress.mergedScenes || [];
     
     // Calculate chunk time range
-    const chunkInfo = chunkProgress.chunks[chunkIndex];
     const chunkStartMs = parseTimecodeToMs(startTimecode);
     const chunkEndMs = parseTimecodeToMs(endTimecode);
     
