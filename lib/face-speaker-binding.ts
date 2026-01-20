@@ -342,6 +342,16 @@ export function calibrateSpeakersByNameMentions(
           `я ${variantLower}`,
           `меня ${variantLower}`,
           `это ${variantLower}`,
+          `меня зовут ${variantLower}`,
+          `я ${variantLower}`, // Дублируем для надёжности
+        ];
+        
+        // Ищем роли: "Менеджер", "Директор" и т.д.
+        // Если вариант имени совпадает с ролью, ищем упоминание роли
+        const rolePatterns = [
+          `${variantLower} говорит`,
+          `${variantLower} отвечает`,
+          `это ${variantLower}`,
         ];
         
         // Проверяем контекст (текущее + предыдущие слова)

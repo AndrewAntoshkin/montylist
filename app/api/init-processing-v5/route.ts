@@ -284,6 +284,44 @@ export async function POST(request: NextRequest) {
           };
         }
         
+        // ═══════════════════════════════════════════════════════════════
+        // STEP 3.2: Name Mention Calibration (определение по упоминаниям имён)
+        // ═══════════════════════════════════════════════════════════════
+        if (hasScript && fullDiarizationWords.length > 0 && scriptData.characters.length > 0) {
+          console.log(`\n📛 STEP 3.2: Name Mention Calibration...`);
+          
+          try {
+            const { calibrateSpeakersByNameMentions } = await import('@/lib/face-speaker-binding');
+            
+            // Конвертируем слова в формат для calibration
+            const diarizationWordsForCalibration = fullDiarizationWords.map(w => ({
+              text: w.text,
+              start: w.startMs,
+              end: w.endMs,
+              speaker: w.speaker,
+            }));
+            
+            // Калибруем по упоминаниям имён (включая роли типа "Менеджер")
+            const nameMentionMapping = calibrateSpeakersByNameMentions(
+              diarizationWordsForCalibration,
+              scriptData.characters.map((c: any) => ({
+                name: c.name,
+                variants: c.variants || [],
+              }))
+            );
+            
+            // Добавляем доказательства в mapper
+            for (const [speakerId, characterName] of nameMentionMapping) {
+              speakerCharacterMapper.addNameMention(speakerId, characterName, 0);
+            }
+            
+            console.log(`   ✅ Name mention calibration: ${nameMentionMapping.size} speakers mapped`);
+          } catch (nameMentionError) {
+            console.error(`   ⚠️ Name mention calibration failed:`, nameMentionError);
+            console.log(`   Continuing without name mention calibration...`);
+          }
+        }
+        
         // Build final mapping
         const mappingResult = speakerCharacterMapper.buildMapping();
         logMappingStats(mappingResult);

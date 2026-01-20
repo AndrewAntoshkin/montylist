@@ -144,7 +144,9 @@ export async function performFullDiarization(
       language_code: language,
       word_boost: speakerHints.slice(0, 20),
       boost_param: 'high',
-      speakers_expected: Math.min(maxSpeakers, 10),
+      // УВЕЛИЧЕНО с 10 до 15 для лучшего различения всех голосов
+      // Если в фильме больше персонажей, они могут быть объединены при меньшем значении
+      speakers_expected: Math.min(maxSpeakers, 15),
       punctuate: true,
       format_text: true,
     });
