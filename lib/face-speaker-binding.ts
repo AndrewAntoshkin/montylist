@@ -324,6 +324,7 @@ export function calibrateSpeakersByNameMentions(
   // Создаём маппинг ролей к персонажам на основе контекста
   const roleToCharacter = new Map<string, string>();
   
+  // Первый проход: упоминания имён и самопрезентация
   for (let i = 0; i < sortedWords.length - 1; i++) {
     const word = sortedWords[i];
     const wordLower = word.text.toLowerCase();
@@ -350,30 +351,6 @@ export function calibrateSpeakersByNameMentions(
             }
           }
         }
-      }
-    }
-    
-    // Универсальное определение ролей: если упоминается роль, а следующий speaker отвечает
-    for (const role of COMMON_ROLES) {
-      if (wordLower.includes(role)) {
-        // Ищем кто отвечает после упоминания роли
-        for (let j = i + 1; j < Math.min(i + 10, sortedWords.length); j++) {
-          const nextWord = sortedWords[j];
-          
-          if (nextWord.speaker !== word.speaker) {
-            // Если этот speaker ещё не привязан, создаём временную связь роль → speaker
-            if (!speakerToCharacter.has(nextWord.speaker) && !roleToCharacter.has(role)) {
-              // Пытаемся найти персонажа, который может быть этой ролью
-              // Проверяем, есть ли в именах персонажей что-то похожее на роль
-              // Или просто запоминаем роль для последующего использования
-              roleToCharacter.set(role, nextWord.speaker);
-              console.log(`   🔍 Role "${role}" mentioned, Speaker ${nextWord.speaker} might be this role`);
-            }
-            break;
-          }
-        }
-      }
-    }
         
         // Ищем самопрезентацию: "Я Галя", "меня зовут Галя"
         const selfPatterns = [
@@ -395,6 +372,25 @@ export function calibrateSpeakersByNameMentions(
               usedCharacters.add(char.name);
               console.log(`   ✅ Speaker ${word.speaker} → ${char.name} (self: "${context}")`);
             }
+          }
+        }
+      }
+    }
+    
+    // Универсальное определение ролей: если упоминается роль, а следующий speaker отвечает
+    for (const role of COMMON_ROLES) {
+      if (wordLower.includes(role)) {
+        // Ищем кто отвечает после упоминания роли
+        for (let j = i + 1; j < Math.min(i + 10, sortedWords.length); j++) {
+          const nextWord = sortedWords[j];
+          
+          if (nextWord.speaker !== word.speaker) {
+            // Если этот speaker ещё не привязан, создаём временную связь роль → speaker
+            if (!speakerToCharacter.has(nextWord.speaker) && !roleToCharacter.has(role)) {
+              roleToCharacter.set(role, nextWord.speaker);
+              console.log(`   🔍 Role "${role}" mentioned, Speaker ${nextWord.speaker} might be this role`);
+            }
+            break;
           }
         }
       }
