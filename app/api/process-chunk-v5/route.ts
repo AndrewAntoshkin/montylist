@@ -223,10 +223,20 @@ export async function POST(request: NextRequest) {
         }
         
       } catch (geminiError: any) {
-        const isNetworkError = geminiError?.cause?.code === 'UND_ERR_SOCKET' ||
-                               geminiError?.code === 'UND_ERR_HEADERS_TIMEOUT' ||
-                               geminiError?.message?.includes('fetch failed') ||
-                               geminiError?.message?.includes('timeout');
+        // Детальное логирование ошибки для диагностики
+        const errorType = geminiError?.cause?.code || geminiError?.code || 'UNKNOWN';
+        const errorMessage = geminiError?.message || String(geminiError);
+        const isNetworkError = errorType === 'UND_ERR_SOCKET' ||
+                               errorType === 'UND_ERR_HEADERS_TIMEOUT' ||
+                               errorMessage?.includes('fetch failed') ||
+                               errorMessage?.includes('timeout') ||
+                               errorMessage?.includes('ECONNRESET') ||
+                               errorMessage?.includes('ETIMEDOUT');
+        
+        console.log(`   ⚠️ Gemini error (attempt ${attempt}/${MAX_RETRIES}):`);
+        console.log(`      Type: ${errorType}`);
+        console.log(`      Message: ${errorMessage?.slice(0, 200)}`);
+        console.log(`      Is network error: ${isNetworkError}`);
         
         if (isNetworkError && attempt < MAX_RETRIES) {
           const delay = attempt * 3000; // Reduced: 3s, 6s (was 5s, 10s, 15s)
@@ -234,6 +244,7 @@ export async function POST(request: NextRequest) {
           await new Promise(r => setTimeout(r, delay));
         } else {
           console.log(`   ⚠️ Gemini failed after ${attempt} attempts, continuing without visual descriptions`);
+          console.log(`      Final error: ${errorType} - ${errorMessage?.slice(0, 200)}`);
           // Continue without Gemini descriptions - dialogues from ASR are more important
           break; // Exit retry loop, continue processing
         }
