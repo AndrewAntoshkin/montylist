@@ -391,10 +391,11 @@ export function extractCharacterAttributes(description: string): CharacterAttrib
   const attrs: CharacterAttributes = {};
   const lowerDesc = description.toLowerCase();
   
-  // Пол
-  if (lowerDesc.includes('женщин') || lowerDesc.includes('девушк') || lowerDesc.includes('девочк')) {
+  // УЛУЧШЕНО: Семантическое определение пола
+  // Проверяем более широкий набор паттернов с границами слов
+  if (lowerDesc.match(/\b(женщин|девушк|девочк|дама|леди|барышн|мадам|мисс|миссис|бабушк|тет|тётя)\b/)) {
     attrs.gender = 'F';
-  } else if (lowerDesc.includes('мужчин') || lowerDesc.includes('парен') || lowerDesc.includes('мальчик')) {
+  } else if (lowerDesc.match(/\b(мужчин|парен|мальчик|муж|господин|мистер|дедушк|дяд|дядя|юнош)\b/)) {
     attrs.gender = 'M';
   }
   
