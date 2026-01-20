@@ -54,8 +54,14 @@ export interface ParsedScript {
 // ПАТТЕРНЫ ДЛЯ ПАРСИНГА
 // ═══════════════════════════════════════════════════════════════════════════
 
-// Паттерн: ИМЯ ПЕРСОНАЖА (всё заглавными, может быть с ремаркой в скобках)
-const CHARACTER_NAME_PATTERN = /^([А-ЯЁA-Z][А-ЯЁA-Z\s\-]{1,30})(\s*\(.*?\))?\s*$/;
+// УЛУЧШЕННЫЙ паттерн: ИМЯ ПЕРСОНАЖА (гибкий, работает с разными форматами)
+// Поддерживает:
+// - Заглавные: "ГАЛИНА"
+// - Смешанный регистр: "Галина"
+// - С двоеточием: "Галина:"
+// - С тире: "Галина -"
+// - С ремаркой: "ГАЛИНА (за кадром)"
+const CHARACTER_NAME_PATTERN = /^([А-ЯЁA-Z][А-ЯЁа-яёA-Za-z\s\-]{1,50})(\s*[:\-]?\s*(\(.*?\))?)?\s*$/;
 
 // Паттерн: ремарка типа "(за кадром)" или "(голос за кадром)"
 const OFFSCREEN_PATTERN = /\(\s*(за\s*кадром|з\.?к\.?|голос\s*за\s*кадром|г\.?з\.?к\.?|off|v\.?o\.?)\s*\)/i;
@@ -131,18 +137,31 @@ export function parseScriptText(text: string): ParsedScript {
   let currentIsVoiceover = false;
   let lineIndex = 0;
   
+  // СЕМАНТИЧЕСКИЙ ПАРСИНГ: Определяем тип строки по контексту
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
+    const nextLine = i < lines.length - 1 ? lines[i + 1].trim() : '';
+    const prevLine = i > 0 ? lines[i - 1].trim() : '';
+    
     if (!line) continue;
     
     // Проверяем, это имя персонажа?
+    // УЛУЧШЕНО: Проверяем несколько паттернов для гибкости
     const nameMatch = line.match(CHARACTER_NAME_PATTERN);
-    if (nameMatch) {
+    const isPotentialName = nameMatch && 
+      // Имя должно начинаться с заглавной буквы
+      /^[А-ЯЁA-Z]/.test(nameMatch[1].trim()) &&
+      // И не быть слишком длинным (вероятно, это реплика)
+      nameMatch[1].trim().length < 50 &&
+      // И не быть в списке игнорируемых
+      !IGNORED_NAMES.has(nameMatch[1].trim().toUpperCase());
+    
+    if (isPotentialName) {
       const rawName = nameMatch[1].trim();
       const remark = nameMatch[2] || '';
       
       // Проверяем, не игнорируемое ли это слово
-      if (IGNORED_NAMES.has(rawName)) {
+      if (IGNORED_NAMES.has(rawName.toUpperCase())) {
         currentCharacter = null;
         continue;
       }
@@ -151,6 +170,16 @@ export function parseScriptText(text: string): ParsedScript {
       currentIsOffscreen = OFFSCREEN_PATTERN.test(remark);
       currentIsVoiceover = VOICEOVER_PATTERN.test(remark);
       
+      // УЛУЧШЕНО: Ищем описание в следующей строке (если это ремарка в скобках)
+      let description = extractDescription(remark);
+      if (!description && nextLine.startsWith('(') && nextLine.endsWith(')')) {
+        // Описание в отдельной строке после имени
+        description = extractDescription(`(${nextLine.slice(1, -1)})`);
+        if (description) {
+          i++; // Пропускаем строку с описанием
+        }
+      }
+      
       // Добавляем/обновляем персонажа
       if (!characters.has(currentCharacter)) {
         characters.set(currentCharacter, {
@@ -158,10 +187,49 @@ export function parseScriptText(text: string): ParsedScript {
           variants: getNameVariants(currentCharacter),
           dialogueCount: 0,
           firstAppearance: lineIndex,
-          description: extractDescription(remark),
+          description: description,
         });
+      } else {
+        // Обновляем описание, если его ещё нет
+        const char = characters.get(currentCharacter);
+        if (char && !char.description && description) {
+          char.description = description;
+        }
       }
       
+      continue;
+    }
+    
+    // УЛУЧШЕНО: Ищем список персонажей в начале сценария
+    // Паттерн: "ПЕРСОНАЖИ:" или "CHARACTERS:" или "ДЕЙСТВУЮЩИЕ ЛИЦА:"
+    if (i < 50 && /^(персонаж|character|действующ|актёр)/i.test(line) && line.endsWith(':')) {
+      // Следующие строки могут быть списком персонажей с описаниями
+      for (let j = i + 1; j < Math.min(i + 100, lines.length); j++) {
+        const charLine = lines[j].trim();
+        if (!charLine || charLine.match(CHARACTER_NAME_PATTERN)) break;
+        
+        // Паттерн: "Имя - описание" или "Имя: описание"
+        const charDescMatch = charLine.match(/^([А-ЯЁA-Z][А-ЯЁа-яёA-Za-z\s\-]{1,50})\s*[:\-]\s*(.+)$/i);
+        if (charDescMatch) {
+          const charName = normalizeCharacterName(charDescMatch[1].trim());
+          const charDesc = charDescMatch[2].trim();
+          
+          if (!characters.has(charName)) {
+            characters.set(charName, {
+              name: charName,
+              variants: getNameVariants(charName),
+              dialogueCount: 0,
+              firstAppearance: lineIndex,
+              description: charDesc,
+            });
+          } else {
+            const char = characters.get(charName);
+            if (char && !char.description) {
+              char.description = charDesc;
+            }
+          }
+        }
+      }
       continue;
     }
     
