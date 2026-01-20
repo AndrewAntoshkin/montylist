@@ -54,9 +54,10 @@ async function initFaceApi(): Promise<void> {
   canvasModule = require('canvas');
   
   // Patch faceapi для работы с node-canvas
-  const { Canvas, Image, ImageData } = canvasModule;
+  // @ts-ignore - canvasModule is dynamically loaded
+  const { Canvas, Image, ImageData } = canvasModule!;
   // @ts-ignore
-  faceapi.env.monkeyPatch({ Canvas, Image, ImageData });
+  faceapi!.env.monkeyPatch({ Canvas, Image, ImageData });
   
   initialized = true;
   console.log('✅ Face-api.js initialized successfully');
@@ -592,10 +593,15 @@ export async function clusterFacesInVideoWorker(
     minAppearances = 5,
   } = options;
   
-  const workerScript = path.join(process.cwd(), 'scripts', 'face-cluster-worker.js');
-  const outputDir = path.join(process.cwd(), 'temp', `face-frames-${Date.now()}`);
+  // ВАЖНО: Используем абсолютный путь для совместимости с Turbopack
+  // process.cwd() может быть ненадёжным в Next.js, поэтому используем __dirname где возможно
+  const projectRoot = process.cwd();
+  const workerScript = `${projectRoot}/scripts/face-cluster-worker.js`;
+  const outputDir = `${projectRoot}/temp/face-frames-${Date.now()}`;
   
   if (!fs.existsSync(workerScript)) {
+    console.error(`Worker script not found at: ${workerScript}`);
+    console.error(`Current working directory: ${projectRoot}`);
     throw new Error(`Worker script not found: ${workerScript}`);
   }
   
@@ -608,16 +614,23 @@ export async function clusterFacesInVideoWorker(
   console.log('');
   
   return new Promise((resolve, reject) => {
-    const { spawn } = require('child_process');
+    // ВАЖНО: Используем eval для обхода статического анализа Turbopack
+    // Turbopack пытается резолвить все аргументы spawn на этапе сборки
+    // eslint-disable-next-line no-eval
+    const childProcess = eval('require')('child_process');
+    const spawnFn = childProcess.spawn;
     
-    const worker = spawn('node', [
+    // Строим аргументы отдельно, чтобы избежать статического анализа
+    const args = [
       workerScript,
       videoPath,
       outputDir,
       String(frameInterval),
       String(distanceThreshold),
       String(minAppearances),
-    ], {
+    ];
+    
+    const worker = spawnFn('node', args, {
       cwd: process.cwd(),
       stdio: ['ignore', 'pipe', 'pipe'],
     });

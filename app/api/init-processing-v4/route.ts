@@ -32,7 +32,8 @@ type FaceCluster = {
   firstSeen: number;
   lastSeen: number;
   characterName?: string | null;
-  centroid?: number[];
+  centroid?: Float32Array | number[];
+  faces?: { timestamp: number }[];
 };
 
 // 5 minutes timeout
@@ -317,9 +318,9 @@ export async function POST(request: NextRequest) {
         lastSeen: cluster.lastSeen,
         characterName: cluster.characterName || null,
         // Store centroid as array for JSON serialization
-        centroid: Array.from(cluster.centroid),
+        centroid: cluster.centroid ? Array.from(cluster.centroid) : [],
         // Store face timestamps for scene matching
-        faceTimestamps: cluster.faces.map(f => f.timestamp),
+        faceTimestamps: cluster.faces?.map(f => f.timestamp) || [],
       }));
       chunkProgress.useFaceRecognition = true;
       console.log(`📊 Saved ${faceClusters.length} face clusters to progress`);

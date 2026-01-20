@@ -413,7 +413,7 @@ export async function POST(request: NextRequest) {
             startMs: word.startMs,  // ТОЧНЫЙ таймкод начала (из ASR)
             endMs: word.endMs,      // ТОЧНЫЙ таймкод конца (из ASR)
           };
-        } else {
+        } else if (currentDialogue) {
           // Continue current dialogue - append text and update end time
           currentDialogue.text += ' ' + word.text;
           currentDialogue.endMs = word.endMs;  // Обновляем конец на последнее слово

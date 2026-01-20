@@ -53,7 +53,7 @@ type FaceCluster = {
   firstSeen: number;
   lastSeen: number;
   characterName?: string | null;
-  centroid?: number[];
+  centroid?: Float32Array | number[];
   faces?: Array<{ timestamp: number }>;
 };
 
@@ -294,12 +294,14 @@ export async function POST(request: NextRequest) {
             const { calibrateSpeakersByNameMentions } = await import('@/lib/face-speaker-binding');
             
             // Конвертируем слова в формат для calibration
-            const diarizationWordsForCalibration = fullDiarizationWords.map(w => ({
-              text: w.text,
-              start: w.startMs,
-              end: w.endMs,
-              speaker: w.speaker,
-            }));
+            const diarizationWordsForCalibration = fullDiarizationWords
+              .filter(w => w.speaker) // Убираем слова без speaker
+              .map(w => ({
+                text: w.text,
+                start: w.startMs,
+                end: w.endMs,
+                speaker: w.speaker!,
+              }));
             
             // Калибруем по упоминаниям имён (включая роли типа "Менеджер")
             const nameMentionMapping = calibrateSpeakersByNameMentions(
