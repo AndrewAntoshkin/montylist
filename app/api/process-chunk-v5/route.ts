@@ -337,11 +337,12 @@ export async function POST(request: NextRequest) {
         const speaker = word.speaker || 'UNKNOWN';
         const character = speakerCharacterMap[speaker] || speaker;
         
-        // Log mapping for debugging (only for problematic timecodes)
+        // Log mapping for debugging (first few scenes and problematic timecodes)
+        const isFirstMinute = word.startMs >= 60000 && word.startMs <= 90000; // 1:00 - 1:30
         const isProblematicTime = word.startMs >= 15 * 60 * 1000 && word.startMs <= 15 * 60 * 1000 + 5 * 1000;
-        if (isProblematicTime || sceneTimecode.includes('15:01') || sceneTimecode.includes('15:02')) {
+        if (isFirstMinute || isProblematicTime || sceneTimecode.includes('15:01') || sceneTimecode.includes('15:02') || sceneTimecode.includes('01:06') || sceneTimecode.includes('01:09')) {
           const isMapped = !!speakerCharacterMap[speaker];
-          console.log(`   🔍 Word "${word.text?.slice(0, 20)}" (${speaker} → ${character}, mapped: ${isMapped})`);
+          console.log(`   🔍 [${msToTimecode(word.startMs, videoFPS)}] Word "${word.text?.slice(0, 20)}" (${speaker} → ${character}, mapped: ${isMapped})`);
         }
         
         // Check for pause between words (same speaker) - split dialogue if pause > threshold
