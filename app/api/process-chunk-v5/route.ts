@@ -463,15 +463,19 @@ export async function POST(request: NextRequest) {
         const sceneStartMs = scene.start_timestamp * 1000;
         const sceneEndMs = scene.end_timestamp * 1000;
         
-        // Уточняем начало: используем начало диалога, но не раньше начала сцены
-        if (firstDialogue.startMs >= sceneStartMs) {
+        // Уточняем начало: используем начало диалога, если оно внутри или на границе сцены
+        // Если диалог начинается раньше сцены (из-за контекстного окна), используем границу сцены
+        if (firstDialogue.startMs >= sceneStartMs && firstDialogue.startMs <= sceneEndMs) {
           exactStartTimecode = dialogueStartTimecode;
         }
+        // Иначе остаётся scene.start_timecode (уже установлено выше)
         
-        // Уточняем конец: используем конец диалога, но не позже конца сцены
-        if (lastDialogue.endMs <= sceneEndMs) {
+        // Уточняем конец: используем конец диалога, если он внутри или на границе сцены
+        // Если диалог заканчивается позже сцены, используем границу сцены
+        if (lastDialogue.endMs <= sceneEndMs && lastDialogue.endMs >= sceneStartMs) {
           exactEndTimecode = dialogueEndTimecode;
         }
+        // Иначе остаётся scene.end_timecode (уже установлено выше)
       }
       
       // Create entry — use same field names as V4 for compatibility
