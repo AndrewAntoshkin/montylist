@@ -342,7 +342,9 @@ export async function POST(request: NextRequest) {
         const isProblematicTime = word.startMs >= 15 * 60 * 1000 && word.startMs <= 15 * 60 * 1000 + 5 * 1000;
         if (isFirstMinute || isProblematicTime || sceneTimecode.includes('15:01') || sceneTimecode.includes('15:02') || sceneTimecode.includes('01:06') || sceneTimecode.includes('01:09')) {
           const isMapped = !!speakerCharacterMap[speaker];
-          console.log(`   🔍 [${msToTimecode(word.startMs, videoFPS)}] Word "${word.text?.slice(0, 20)}" (${speaker} → ${character}, mapped: ${isMapped})`);
+          // Inline timecode formatting (msToTimecode defined later in file)
+          const wordTimecode = `${Math.floor(word.startMs / 60000)}:${String(Math.floor((word.startMs % 60000) / 1000)).padStart(2, '0')}`;
+          console.log(`   🔍 [${wordTimecode}] Word "${word.text?.slice(0, 20)}" (${speaker} → ${character}, mapped: ${isMapped})`);
         }
         
         // Check for pause between words (same speaker) - split dialogue if pause > threshold
