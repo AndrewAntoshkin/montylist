@@ -524,7 +524,12 @@ export async function POST(request: NextRequest) {
       console.error(`   Chunk: ${chunkIndex}, Scenes: ${scenesInChunk.length}, Plan offset: ${scenesBeforeThisChunk}`);
     }
     
-    console.log(`   ✅ Created ${plansCreated}/${expectedPlans} entries`);
+    // Всегда выводим формат X/Y для отслеживания
+    if (plansCreated === expectedPlans) {
+      console.log(`   ✅ Created ${plansCreated}/${expectedPlans} entries (все планы созданы)`);
+    } else {
+      console.log(`   ⚠️  Created ${plansCreated}/${expectedPlans} entries (НЕ ВСЕ ПЛАНЫ!)`);
+    }
     
     const processingTime = ((Date.now() - startTime) / 1000).toFixed(1);
     console.log(`\n✅ Chunk ${chunkIndex} complete in ${processingTime}s`);
