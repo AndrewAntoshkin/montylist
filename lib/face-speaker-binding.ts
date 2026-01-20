@@ -397,6 +397,44 @@ export function calibrateSpeakersByNameMentions(
     }
   }
   
+  // Второй проход: связываем роли с персонажами через контекст
+  // Ищем паттерны типа "менеджер Иосиф", "Иосиф менеджер", "это менеджер Иосиф"
+  for (let i = 0; i < sortedWords.length - 5; i++) {
+    const contextWords = sortedWords.slice(i, i + 5).map(w => w.text.toLowerCase()).join(' ');
+    
+    // Ищем паттерны типа "роль имя" или "имя роль"
+    for (const char of characters) {
+      for (const variant of char.variants) {
+        const variantLower = variant.toLowerCase();
+        
+        for (const role of COMMON_ROLES) {
+          // Паттерны: "роль имя" или "имя роль"
+          if (contextWords.includes(`${role} ${variantLower}`) || 
+              contextWords.includes(`${variantLower} ${role}`) ||
+              contextWords.includes(`это ${role} ${variantLower}`) ||
+              contextWords.includes(`${role} это ${variantLower}`)) {
+            
+            // Находим speaker в этом контексте
+            const contextSpeakers = new Set(
+              sortedWords.slice(i, i + 5)
+                .filter(w => w.text.toLowerCase().includes(variantLower) || w.text.toLowerCase().includes(role))
+                .map(w => w.speaker)
+            );
+            
+            // Если есть speaker, который ещё не привязан, привязываем его к персонажу
+            for (const speakerId of contextSpeakers) {
+              if (!speakerToCharacter.has(speakerId) && !usedCharacters.has(char.name)) {
+                speakerToCharacter.set(speakerId, char.name);
+                usedCharacters.add(char.name);
+                console.log(`   ✅ Speaker ${speakerId} → ${char.name} (role context: "${role}" + "${variantLower}")`);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  
   console.log(`   📊 Calibrated ${speakerToCharacter.size} speakers by name mentions\n`);
   
   return speakerToCharacter;
