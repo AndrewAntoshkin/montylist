@@ -182,18 +182,28 @@ export function parseScriptText(text: string): ParsedScript {
       
       // Добавляем/обновляем персонажа
       if (!characters.has(currentCharacter)) {
+        // УЛУЧШЕНО: Извлекаем структурированные атрибуты из описания
+        const attributes = description ? extractCharacterAttributes(description) : undefined;
+        
         characters.set(currentCharacter, {
           name: currentCharacter,
           variants: getNameVariants(currentCharacter),
           dialogueCount: 0,
           firstAppearance: lineIndex,
           description: description,
+          attributes: attributes,
         });
       } else {
-        // Обновляем описание, если его ещё нет
+        // Обновляем описание и атрибуты, если их ещё нет
         const char = characters.get(currentCharacter);
-        if (char && !char.description && description) {
-          char.description = description;
+        if (char) {
+          if (!char.description && description) {
+            char.description = description;
+            char.attributes = extractCharacterAttributes(description);
+          } else if (description && !char.attributes) {
+            // Обновляем атрибуты, если описание уже было, но атрибутов нет
+            char.attributes = extractCharacterAttributes(description);
+          }
         }
       }
       
@@ -215,17 +225,27 @@ export function parseScriptText(text: string): ParsedScript {
           const charDesc = charDescMatch[2].trim();
           
           if (!characters.has(charName)) {
+            // УЛУЧШЕНО: Извлекаем структурированные атрибуты из описания
+            const attributes = extractCharacterAttributes(charDesc);
+            
             characters.set(charName, {
               name: charName,
               variants: getNameVariants(charName),
               dialogueCount: 0,
               firstAppearance: lineIndex,
               description: charDesc,
+              attributes: attributes,
             });
           } else {
             const char = characters.get(charName);
-            if (char && !char.description) {
-              char.description = charDesc;
+            if (char) {
+              if (!char.description) {
+                char.description = charDesc;
+                char.attributes = extractCharacterAttributes(charDesc);
+              } else if (!char.attributes) {
+                // Обновляем атрибуты, если описание уже было
+                char.attributes = extractCharacterAttributes(charDesc);
+              }
             }
           }
         }
@@ -389,14 +409,18 @@ export function extractCharacterAttributes(description: string): CharacterAttrib
     attrs.hairColor = 'grey';
   }
   
-  // Возраст
-  const ageMatch = lowerDesc.match(/(\d{1,2})\s*-?\s*(\d{1,2})?\s*(лет|года|год)/);
+  // УЛУЧШЕНО: Семантическое определение возраста
+  const ageMatch = lowerDesc.match(/(\d{1,2})\s*-?\s*(\d{1,2})?\s*(лет|года|год|г\.)/);
   if (ageMatch) {
     attrs.ageRange = ageMatch[1] + (ageMatch[2] ? `-${ageMatch[2]}` : '');
-  } else if (lowerDesc.includes('молод')) {
-    attrs.ageRange = '20-35';
-  } else if (lowerDesc.includes('пожил') || lowerDesc.includes('старш')) {
+  } else if (lowerDesc.match(/\b(молод|юн|подросток|студент|школьник)\b/)) {
+    attrs.ageRange = '18-30';
+  } else if (lowerDesc.match(/\b(средн|зрел|взросл)\b/)) {
+    attrs.ageRange = '30-50';
+  } else if (lowerDesc.match(/\b(пожил|старш|пенсионер|старик|старушк|дед|бабушк)\b/)) {
     attrs.ageRange = '50+';
+  } else if (lowerDesc.match(/\b(ребёнок|малыш|дет|маленьк)\b/)) {
+    attrs.ageRange = '0-18';
   }
   
   // Отличительные черты
