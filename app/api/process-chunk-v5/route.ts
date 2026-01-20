@@ -504,13 +504,27 @@ export async function POST(request: NextRequest) {
         });
       
       if (entryError) {
-        console.error(`   ❌ Entry error for plan ${planNumber}:`, entryError);
+        console.error(`   ❌ Entry error for plan ${planNumber} (scene ${sceneIndex}):`, entryError);
+        // КРИТИЧНО: Не пропускаем план даже при ошибке - логируем для анализа
+        console.error(`   ⚠️  MISSING PLAN: sceneIndex=${sceneIndex}, planNumber=${planNumber}, timecode=${exactStartTimecode}`);
       } else {
         plansCreated++;
       }
     }
     
-    console.log(`   ✅ Created ${plansCreated} entries`);
+    // КРИТИЧНАЯ ПРОВЕРКА: Убеждаемся, что создали entry для ВСЕХ сцен
+    // PySceneDetect нашёл 1065 планов, реальный лист имеет 1061 - разница всего 4!
+    // НЕ ДОЛЖНЫ ТЕРЯТЬ ПЛАНЫ!
+    const expectedPlans = scenesInChunk.length;
+    if (plansCreated !== expectedPlans) {
+      console.error(`\n   ⚠️  ⚠️  ⚠️  КРИТИЧЕСКАЯ ПРОБЛЕМА: Потеря планов! ⚠️  ⚠️  ⚠️`);
+      console.error(`   Ожидалось планов: ${expectedPlans}`);
+      console.error(`   Создано планов: ${plansCreated}`);
+      console.error(`   ПОТЕРЯНО: ${expectedPlans - plansCreated} планов!`);
+      console.error(`   Chunk: ${chunkIndex}, Scenes: ${scenesInChunk.length}, Plan offset: ${scenesBeforeThisChunk}`);
+    }
+    
+    console.log(`   ✅ Created ${plansCreated}/${expectedPlans} entries`);
     
     const processingTime = ((Date.now() - startTime) / 1000).toFixed(1);
     console.log(`\n✅ Chunk ${chunkIndex} complete in ${processingTime}s`);

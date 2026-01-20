@@ -438,6 +438,14 @@ export async function POST(request: NextRequest) {
         chunkProgress.mergedScenes = mergedScenes;
         console.log(`   📊 After credits merge: ${mergedScenes.length} plans`);
         
+        // КРИТИЧЕСКАЯ ПРОВЕРКА: PySceneDetect нашёл 1065 планов, реальный лист имеет 1061
+        // Разница всего 4 плана - НЕ ДОЛЖНЫ ТЕРЯТЬ ПЛАНЫ!
+        if (mergedScenes.length !== 1065 && mergedScenes.length !== 1061) {
+          console.log(`   ⚠️  Внимание: Количество планов (${mergedScenes.length}) отличается от ожидаемого (1065 или 1061)`);
+        } else {
+          console.log(`   ✅ Количество планов соответствует ожидаемому: ${mergedScenes.length}`);
+        }
+        
       } else {
         console.warn(`   ⚠️ PySceneDetect not available`);
       }
