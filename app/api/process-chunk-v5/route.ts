@@ -253,8 +253,11 @@ export async function POST(request: NextRequest) {
       const sceneEndMs = scene.end_timestamp * 1000;
       
       // Get words in this scene
+      // УВЕЛИЧЕНО контекстное окно с ±500ms до ±1000ms для захвата полных реплик
+      // Это исправляет проблему обрезания реплик (например, "столкн..." вместо "столкнулись")
+      const CONTEXT_WINDOW_MS = 1000; // Увеличено с 500ms для захвата полных реплик
       let wordsInScene = fullDiarizationWords.filter(
-        w => w.startMs >= sceneStartMs - 500 && w.endMs <= sceneEndMs + 500
+        w => w.startMs >= sceneStartMs - CONTEXT_WINDOW_MS && w.endMs <= sceneEndMs + CONTEXT_WINDOW_MS
       );
       
       // Log scene info for debugging (only for problematic timecodes)
@@ -314,7 +317,9 @@ export async function POST(request: NextRequest) {
       // Group by speaker with pause detection for accurate dialogue splitting
       const dialogues: DialogueLine[] = [];
       let currentDialogue: DialogueLine | null = null;
-      const PAUSE_THRESHOLD_MS = 500; // Пауза >500ms = новая реплика (для точного разбиения)
+      // УВЕЛИЧЕНО с 500ms до 1000ms чтобы не разбивать одну реплику на несколько
+      // Это исправляет проблему разбиения одной реплики (например, "А мой..." разбита на несколько планов)
+      const PAUSE_THRESHOLD_MS = 1000; // Пауза >1000ms = новая реплика (увеличено для сохранения целостности реплик)
       
       for (let i = 0; i < wordsInScene.length; i++) {
         const word = wordsInScene[i];
