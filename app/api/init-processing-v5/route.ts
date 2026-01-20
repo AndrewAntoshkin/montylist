@@ -237,7 +237,7 @@ export async function POST(request: NextRequest) {
           videoUrl,
           'ru',
           characterNames,
-          10
+          15  // УВЕЛИЧЕНО с 10 до 15 для лучшего различения всех голосов
         );
         
         console.log(`   ✅ Diarization complete:`);
