@@ -431,28 +431,47 @@ export async function POST(request: NextRequest) {
         })
         .join('\n\n');
       
-      // Calculate EXACT timecodes from dialogues (more accurate than scene boundaries)
-      // Use first dialogue start and last dialogue end, or fallback to scene boundaries
+      // ВАЖНО: Всегда используем границы сцены из PySceneDetect (он правильно определяет планы)
+      // Таймкоды диалогов используются только для точности внутри сцены, но не заменяют границы сцены
+      // Это гарантирует, что мы не потеряем ни одного плана из PySceneDetect
+      
+      // Convert milliseconds to timecode format (HH:MM:SS:FF)
+      const msToTimecode = (ms: number, fps: number = 25): string => {
+        const totalSeconds = Math.floor(ms / 1000);
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const seconds = totalSeconds % 60;
+        const frames = Math.floor((ms % 1000) / (1000 / fps));
+        return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}:${String(frames).padStart(2, '0')}`;
+      };
+      
+      // Используем границы сцены из PySceneDetect (это правильно определённые планы)
       let exactStartTimecode = scene.start_timecode;
       let exactEndTimecode = scene.end_timecode;
       
+      // Если есть диалоги, можем уточнить таймкоды, но НЕ выходим за границы сцены
       if (dialogues.length > 0) {
-        // Convert milliseconds to timecode format (HH:MM:SS:FF)
-        const msToTimecode = (ms: number, fps: number = 25): string => {
-          const totalSeconds = Math.floor(ms / 1000);
-          const hours = Math.floor(totalSeconds / 3600);
-          const minutes = Math.floor((totalSeconds % 3600) / 60);
-          const seconds = totalSeconds % 60;
-          const frames = Math.floor((ms % 1000) / (1000 / fps));
-          return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}:${String(frames).padStart(2, '0')}`;
-        };
-        
-        // Get first dialogue start and last dialogue end
         const firstDialogue = dialogues[0];
         const lastDialogue = dialogues[dialogues.length - 1];
         
-        exactStartTimecode = msToTimecode(firstDialogue.startMs, videoFPS);
-        exactEndTimecode = msToTimecode(lastDialogue.endMs, videoFPS);
+        const dialogueStartTimecode = msToTimecode(firstDialogue.startMs, videoFPS);
+        const dialogueEndTimecode = msToTimecode(lastDialogue.endMs, videoFPS);
+        
+        // Используем таймкоды диалогов, но НЕ выходим за границы сцены
+        // Это гарантирует, что план соответствует сцене из PySceneDetect
+        // Но таймкоды более точные (когда диалоги начинаются/заканчиваются)
+        const sceneStartMs = scene.start_timestamp * 1000;
+        const sceneEndMs = scene.end_timestamp * 1000;
+        
+        // Уточняем начало: используем начало диалога, но не раньше начала сцены
+        if (firstDialogue.startMs >= sceneStartMs) {
+          exactStartTimecode = dialogueStartTimecode;
+        }
+        
+        // Уточняем конец: используем конец диалога, но не позже конца сцены
+        if (lastDialogue.endMs <= sceneEndMs) {
+          exactEndTimecode = dialogueEndTimecode;
+        }
       }
       
       // Create entry — use same field names as V4 for compatibility
