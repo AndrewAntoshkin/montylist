@@ -38,6 +38,12 @@ export async function createClient() {
 
 // Service Role client for admin operations (like creating public URLs)
 export function createServiceRoleClient() {
+  if (!SUPABASE_SERVICE_KEY) {
+    console.error('❌ SUPABASE_SERVICE_ROLE_KEY is not set!');
+    console.error('   Available env vars:', Object.keys(process.env).filter(k => k.includes('SUPABASE')).join(', '));
+    throw new Error('SUPABASE_SERVICE_ROLE_KEY environment variable is required. Please set it in Railway Variables.');
+  }
+  
   return createSupabaseClient(
     SUPABASE_URL,
     SUPABASE_SERVICE_KEY,
