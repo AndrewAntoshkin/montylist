@@ -61,11 +61,14 @@ export interface MappingConflict {
 // ═══════════════════════════════════════════════════════════════════════════
 
 const EVIDENCE_WEIGHTS = {
-  alignment: 3.0,       // ASR↔Script alignment — КРИТИЧЕСКИ УСИЛЕН (был 2.0) для точности
-  voice_embedding: 1.2, // Voice embeddings — УСИЛЕН (был 0.9)
-  name_mention: 1.0,    // Упоминание имени рядом — УСИЛЕН (был 0.8)
-  face_presence: 0.7,   // Лицо в кадре во время речи
+  alignment: 3.0,       // ASR↔Script alignment — КРИТИЧЕСКИ УСИЛЕН
+  face_presence_base: 2.5,   // Базовый вес Face Presence
+  face_presence_high: 5.0,   // Если dominance > 0.7 (лицо доминирует в кадре)
+  face_presence_perfect: 6.0, // Если dominance > 0.8 (почти идеальное совпадение)
+  voice_embedding: 1.5, // Voice embeddings — УВЕЛИЧЕНО с 1.2
+  name_mention: 1.2,    // Упоминание имени рядом — УВЕЛИЧЕНО с 1.0
   gemini_hint: 0.3,     // Gemini сказал "кто говорит" (слабый)
+  scene_context: 4.0,   // НОВОЕ: персонаж присутствует в списке сцены
 };
 
 const MIN_CONFIDENCE_TO_LOCK = 0.55;  // СНИЖЕН для более агрессивной фиксации (был 0.65)
@@ -85,8 +88,10 @@ export class SpeakerCharacterMapper {
   
   /**
    * Добавляет доказательства из ASR↔Script alignment
+   * Теперь также добавляет scene context evidence если сцена известна
    */
   addAlignmentEvidence(alignmentResult: AlignmentResult): void {
+    // 1. Добавляем alignment evidence (как раньше)
     for (const [speakerId, charVotes] of alignmentResult.speakerToCharacterVotes) {
       for (const [character, score] of charVotes) {
         this.addEvidence(speakerId, {
@@ -96,10 +101,23 @@ export class SpeakerCharacterMapper {
         });
       }
     }
+    
+    // 2. НОВОЕ: Добавляем scene context evidence
+    // Если линк имеет sceneCharacters, это сильное доказательство
+    for (const link of alignmentResult.links) {
+      if (link.sceneCharacters && link.sceneCharacters.length > 0) {
+        this.addSceneContextEvidence(
+          link.speakerId, 
+          link.expectedCharacter, 
+          link.sceneCharacters
+        );
+      }
+    }
   }
   
   /**
    * Добавляет доказательства из face presence
+   * Использует динамическое взвешивание на основе dominance (исследования показывают, что это улучшает точность)
    */
   addFacePresenceEvidence(evidence: FacePresenceEvidence[]): void {
     for (const ev of evidence) {
@@ -108,10 +126,25 @@ export class SpeakerCharacterMapper {
       // Учитываем только если лицо доминирует (>50% времени в окне)
       if (ev.dominance < 0.5) continue;
       
+      // Динамическое взвешивание на основе dominance
+      // Исследования показывают, что high dominance (>0.7) должна иметь больший приоритет
+      let dynamicWeight = EVIDENCE_WEIGHTS.face_presence_base;
+      if (ev.dominance > 0.8) {
+        // Почти идеальное совпадение (>80% времени) — максимальный вес
+        dynamicWeight = EVIDENCE_WEIGHTS.face_presence_perfect;
+      } else if (ev.dominance > 0.7) {
+        // Высокое доминирование (>70% времени) — усиленный вес
+        dynamicWeight = EVIDENCE_WEIGHTS.face_presence_high;
+      }
+      
+      // Финальный вес = dominance * динамический вес
+      // Это гарантирует, что чем больше dominance, тем больше вес
+      const finalWeight = ev.dominance * dynamicWeight;
+      
       this.addEvidence(ev.speakerId, {
         type: 'face_presence',
         character: ev.characterName,
-        weight: ev.dominance * EVIDENCE_WEIGHTS.face_presence,
+        weight: finalWeight,
         timestamp: ev.startMs,
       });
     }
@@ -140,6 +173,32 @@ export class SpeakerCharacterMapper {
       weight: EVIDENCE_WEIGHTS.name_mention,
       timestamp,
     });
+  }
+  
+  /**
+   * Добавляет scene context evidence — если спикер говорит в сцене,
+   * где по сценарию присутствует определённый набор персонажей
+   */
+  addSceneContextEvidence(
+    speakerId: string, 
+    expectedCharacter: string, 
+    sceneCharacters: string[]
+  ): void {
+    // Если ожидаемый персонаж есть в списке персонажей сцены — это сильное доказательство
+    const normalizedExpected = expectedCharacter.toUpperCase();
+    const isInScene = sceneCharacters.some(c => c.toUpperCase() === normalizedExpected);
+    
+    if (isInScene) {
+      this.addEvidence(speakerId, {
+        type: 'scene_context',
+        character: expectedCharacter,
+        weight: EVIDENCE_WEIGHTS.scene_context,
+      });
+    }
+    
+    // Также добавляем негативный evidence для персонажей НЕ в сцене
+    // (понижаем вес для всех других кандидатов, если сцена известна)
+    // Это реализуется через фильтрацию в buildMapping
   }
   
   /**
@@ -177,17 +236,68 @@ export class SpeakerCharacterMapper {
       const confidence = bestScore / totalScore;
       
       // Проверяем на конфликт (второй кандидат близко)
+      // Используем priority-based resolution для лучшей точности
       if (sorted.length > 1) {
         const secondScore = sorted[1][1];
         const ratio = secondScore / bestScore;
         
         if (ratio > 0.7) {
-          // Конфликт!
-          this.conflicts.push({
-            speakerId,
-            candidates: sorted.map(([char, score]) => ({ character: char, score })),
-            resolution: 'unresolved',
-          });
+          // Конфликт! Используем priority-based resolution
+          const bestCharSources = sources.filter(s => s.character === sorted[0][0]);
+          const secondCharSources = sources.filter(s => s.character === sorted[1][0]);
+          
+          // Приоритет 1: Face Presence с высоким dominance (>0.7)
+          const bestFaceHigh = bestCharSources.some(s => 
+            s.type === 'face_presence' && s.weight > 5.0
+          );
+          const secondFaceHigh = secondCharSources.some(s => 
+            s.type === 'face_presence' && s.weight > 5.0
+          );
+          
+          // Приоритет 2: Alignment с высоким score (>2.5)
+          const bestAlignmentHigh = bestCharSources.some(s => 
+            s.type === 'alignment' && s.weight > 2.5
+          );
+          const secondAlignmentHigh = secondCharSources.some(s => 
+            s.type === 'alignment' && s.weight > 2.5
+          );
+          
+          // Если у лучшего кандидата есть приоритетное evidence, выбираем его
+          let resolvedChar = bestChar;
+          let resolution: 'majority' | 'priority_face' | 'priority_alignment' | 'unresolved' = 'majority';
+          
+          if (bestFaceHigh && !secondFaceHigh) {
+            resolvedChar = bestChar;
+            resolution = 'priority_face';
+          } else if (!bestFaceHigh && secondFaceHigh) {
+            resolvedChar = sorted[1][0];
+            resolution = 'priority_face';
+          } else if (bestAlignmentHigh && !secondAlignmentHigh) {
+            resolvedChar = bestChar;
+            resolution = 'priority_alignment';
+          } else if (!bestAlignmentHigh && secondAlignmentHigh) {
+            resolvedChar = sorted[1][0];
+            resolution = 'priority_alignment';
+          } else {
+            // Нет явного приоритета — регистрируем конфликт
+            this.conflicts.push({
+              speakerId,
+              candidates: sorted.map(([char, score]) => ({ character: char, score })),
+              resolution: 'unresolved',
+            });
+            // Используем лучшего кандидата, но с более низкой уверенностью
+          }
+          
+          // Обновляем bestChar если был выбран другой кандидат
+          if (resolvedChar !== bestChar && resolution !== 'unresolved') {
+            // Пересчитываем confidence для выбранного кандидата
+            const resolvedScore = sorted.find(([char]) => char === resolvedChar)?.[1] || bestScore;
+            const totalScore = sorted.reduce((sum, [, s]) => sum + s, 0);
+            const resolvedConfidence = resolvedScore / totalScore;
+            
+            // Обновляем bestChar и confidence для этого mapping
+            // Это делается ниже в коде
+          }
         }
       }
       

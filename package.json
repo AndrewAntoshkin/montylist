@@ -10,6 +10,7 @@
     "upload-email-assets": "node scripts/upload-email-assets.js"
   },
   "dependencies": {
+    "@fal-ai/client": "^1.8.3",
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@ffmpeg/ffmpeg": "^0.12.10",
     "@ffmpeg/util": "^0.12.1",

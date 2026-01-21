@@ -286,52 +286,17 @@ export function formatWordsForDisplay(
 // ═══════════════════════════════════════════════════════════════
 
 // ═══════════════════════════════════════════════════════════════
-// ВАРИАНТЫ ИМЁН ДЛЯ ТОЧНОЙ КАЛИБРОВКИ
+// УНИВЕРСАЛЬНЫЙ ПОДХОД: НЕТ ХАРДКОДА ИМЁН
+// Имена берём КАК ЕСТЬ из сценария
 // ═══════════════════════════════════════════════════════════════
-const NAME_VARIANTS: Record<string, string[]> = {
-  'ТАТЬЯНА': ['ТАНЯ', 'ТАНЬКА', 'ТАНЮША', 'ТАНЮХА', 'ТАНЬ'],
-  'ТАМАРА': ['ТОМА', 'ТОМКА', 'ТОМОЧКА'],  // ТОМА ≠ ТАНЯ!
-  'ГАЛИНА': ['ГАЛЯ', 'ГАЛОЧКА', 'ГАЛЮСЯ', 'ГАЛЬКА'],
-  'СВЕТЛАНА': ['СВЕТА', 'СВЕТИК', 'СВЕТОЧКА', 'СВЕТКА'],
-  'ЕЛЕНА': ['ЛЕНА', 'ЛЕНОЧКА', 'ЛЕНКА'],
-  'НАТАЛЬЯ': ['НАТАША', 'НАТАШКА', 'НАТУЛЯ'],
-  'ВАЛЕНТИНА': ['ВАЛЯ', 'ВАЛЮША', 'ВАЛЬКА'],
-  'АЛЕКСАНДРА': ['САША', 'ШУРА', 'ШУРОЧКА'],
-  'ЛЮДМИЛА': ['ЛЮДА', 'ЛЮДАСЯ', 'ЛЮДОЧКА', 'ЛЮСЯ'],
-  'МАРИЯ': ['МАША', 'МАШКА', 'МАРУСЯ'],
-  'ЕКАТЕРИНА': ['КАТЯ', 'КАТЮША', 'КАТЬКА'],
-  'АННА': ['АНЯ', 'АНЮТА', 'НЮРА'],
-  'ИРИНА': ['ИРА', 'ИРОЧКА', 'ИРКА'],
-  'ОЛЬГА': ['ОЛЯ', 'ОЛЕЧКА', 'ОЛЬКА'],
-  'ВАРВАРА': ['ВАРЯ', 'ВАРЬКА', 'ВАРЮША'],
-  'ЛАРИСА': ['ЛАРА', 'ЛАРИСКА', 'ЛАРКА'],
-  'ЗИНАИДА': ['ЗИНА', 'ЗИНКА', 'ЗИНУЛЯ'],
-};
 
-// Обратный маппинг: вариант → каноническое имя
+// Простой маппинг: каждое имя из сценария маппится на себя
 function buildVariantToCanonical(knownCharacters: string[]): Map<string, string> {
   const map = new Map<string, string>();
   
+  // Просто добавляем все известные персонажи как есть
   for (const char of knownCharacters) {
     map.set(char, char);
-    
-    // Добавляем известные варианты
-    const variants = NAME_VARIANTS[char];
-    if (variants) {
-      for (const v of variants) {
-        // Если вариант не является отдельным персонажем — маппим на каноническое
-        if (!knownCharacters.includes(v)) {
-          map.set(v, char);
-        }
-      }
-    }
-    
-    // Обратный поиск: если char это вариант кого-то
-    for (const [canonical, variants] of Object.entries(NAME_VARIANTS)) {
-      if (variants.includes(char) && knownCharacters.includes(canonical)) {
-        map.set(char, canonical);
-      }
-    }
   }
   
   return map;
@@ -423,37 +388,15 @@ export function calibrateSpeakerMapping(
     return null;
   };
   
-  // Функция поиска персонажа в ASR тексте по обращениям ("Таненька!")
+  // Функция поиска персонажа в ASR тексте
+  // УНИВЕРСАЛЬНАЯ: ищем только имена из сценария, без хардкода
   const findCharacterInASR = (asrText: string): string | null => {
     const upper = asrText.toUpperCase();
     
-    // Ищем ласкательные обращения: Таненька, Галочка, Томочка
-    const affectionatePatterns = [
-      { pattern: /ТАНЕН?ЬКА|ТАНЮШ/i, canonical: 'НАДЯ' }, // Таню обычно зовёт Надя
-      { pattern: /ГАЛОЧ?КА|ГАЛЮС/i, canonical: 'ГАЛЯ' },
-      { pattern: /ТОМОЧ?КА|ТОМУС/i, canonical: 'ТОМА' },
-      { pattern: /ШУРОЧК/i, canonical: 'ШУРОЧКА' },
-      { pattern: /СВЕТИК|СВЕТОЧ/i, canonical: 'СВЕТИК' },
-    ];
-    
-    for (const { pattern, canonical } of affectionatePatterns) {
-      if (pattern.test(upper) && knownCharacters.includes(canonical)) {
-        return canonical;
-      }
-    }
-    
-    // Ищем прямые имена в ASR
+    // Ищем прямые имена из сценария в ASR тексте
     for (const char of knownCharacters) {
       const pattern = new RegExp(`\\b${char}\\b`, 'i');
       if (pattern.test(upper)) return char;
-    }
-    
-    // Ищем варианты имён
-    for (const [variant, canonical] of variantToCanonical) {
-      const pattern = new RegExp(`\\b${variant}\\b`, 'i');
-      if (pattern.test(upper) && knownCharacters.includes(canonical)) {
-        return canonical;
-      }
     }
     
     return null;

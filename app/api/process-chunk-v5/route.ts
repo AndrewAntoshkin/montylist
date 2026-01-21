@@ -14,13 +14,14 @@
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { getReplicatePool } from '@/lib/replicate-pool';
+// import { getReplicatePool } from '@/lib/replicate-pool'; // Replaced with fal.ai
 import { 
   detectFacePresence, 
   formatPresenceStatus,
   type FacePresenceResult,
 } from '@/lib/face-presence-detector';
 import type { FaceCluster } from '@/lib/face-types';
+import { analyzeVideoChunk } from '@/lib/fal-video-understanding';
 
 // 5 minutes timeout
 export const maxDuration = 300;
@@ -71,6 +72,7 @@ export async function POST(request: NextRequest) {
     
     console.log(`\n${'─'.repeat(60)}`);
     console.log(`📦 V5 BETA CHUNK ${chunkIndex}: ${startTimecode} → ${endTimecode}`);
+    console.log(`   Video ID: ${videoId}`);
     console.log(`${'─'.repeat(60)}`);
     
     const supabase = createServiceRoleClient();
@@ -117,6 +119,32 @@ export async function POST(request: NextRequest) {
     const fullDiarizationWords: ASRWord[] = chunkProgress.fullDiarizationWords || [];
     console.log(`   Full diarization words: ${fullDiarizationWords.length}`);
     
+    // АВТОМАТИЧЕСКИЙ СБРОС ЗАСТРЯВШИХ ЧАНКОВ
+    // Если какой-то чанк в 'triggering' более 60 секунд — сбрасываем в 'pending'
+    const TRIGGERING_TIMEOUT_MS = 60 * 1000; // 60 секунд
+    const now = Date.now();
+    let hadStuckChunks = false;
+    
+    for (const chunk of chunkProgress.chunks) {
+      if (chunk.status === 'triggering' && chunk.triggered_at) {
+        const triggeredAt = new Date(chunk.triggered_at).getTime();
+        if (now - triggeredAt > TRIGGERING_TIMEOUT_MS) {
+          console.log(`   🔄 Auto-reset stuck chunk ${chunk.index} (triggering for ${Math.round((now - triggeredAt) / 1000)}s)`);
+          chunk.status = 'pending';
+          chunk.triggered_at = undefined;
+          chunk.processing_id = null;
+          hadStuckChunks = true;
+        }
+      }
+    }
+    
+    if (hadStuckChunks) {
+      await supabase
+        .from('videos')
+        .update({ chunk_progress_json: chunkProgress })
+        .eq('id', videoId);
+    }
+    
     // ЗАЩИТА ОТ ДУБЛИРОВАНИЯ: Проверяем, не обрабатывается ли чанк уже
     const chunkInfo = chunkProgress.chunks[chunkIndex];
     
@@ -135,23 +163,65 @@ export async function POST(request: NextRequest) {
     }
     
     if (chunkInfo.status === 'in_progress') {
-      console.log(`   ⚠️  Chunk ${chunkIndex} already in progress, skipping duplicate request...`);
-      return NextResponse.json({
-        success: true,
-        skipped: true,
-        reason: 'already_in_progress',
-        chunkIndex,
-      });
+      // Проверяем timeout — если чанк in_progress более 20 минут, считаем его застрявшим
+      const STUCK_TIMEOUT_MS = 20 * 60 * 1000; // 20 минут
+      const startedAt = chunkInfo.started_at ? new Date(chunkInfo.started_at).getTime() : 0;
+      const now = Date.now();
+      const isStuck = startedAt > 0 && (now - startedAt) > STUCK_TIMEOUT_MS;
+      
+      if (isStuck) {
+        console.log(`   ⚠️  Chunk ${chunkIndex} stuck for ${Math.round((now - startedAt) / 60000)} min — resetting to pending...`);
+        chunkInfo.status = 'pending';
+        chunkInfo.started_at = undefined;
+        await supabase
+          .from('videos')
+          .update({ chunk_progress_json: chunkProgress })
+          .eq('id', videoId);
+        // Продолжаем обработку
+      } else {
+        console.log(`   ⚠️  Chunk ${chunkIndex} already in progress, skipping duplicate request...`);
+        return NextResponse.json({
+          success: true,
+          skipped: true,
+          reason: 'already_in_progress',
+          chunkIndex,
+        });
+      }
     }
     
-    // Помечаем как in_progress сразу, чтобы избежать race condition
+    // АТОМАРНАЯ БЛОКИРОВКА: используем уникальный processing_id
+    // Если после записи ID не совпадает — кто-то другой уже взял чанк
+    const processingId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const previousStatus = chunkInfo.status;
+    
     chunkInfo.status = 'in_progress';
+    chunkInfo.started_at = new Date().toISOString();
+    chunkInfo.processing_id = processingId;
+    
     await supabase
       .from('videos')
       .update({ chunk_progress_json: chunkProgress })
       .eq('id', videoId);
     
-    console.log(`   📊 Chunk ${chunkIndex} marked as in_progress (защита от дублирования)`);
+    // Перечитываем и проверяем что МЫ взяли чанк (а не кто-то другой)
+    const { data: verifyData } = await supabase
+      .from('videos')
+      .select('chunk_progress_json')
+      .eq('id', videoId)
+      .single();
+    
+    const verifiedChunk = verifyData?.chunk_progress_json?.chunks?.[chunkIndex];
+    if (verifiedChunk?.processing_id !== processingId) {
+      console.log(`   ⚠️  Chunk ${chunkIndex} was taken by another worker (ID mismatch), skipping...`);
+      return NextResponse.json({
+        success: true,
+        skipped: true,
+        reason: 'taken_by_another_worker',
+        chunkIndex,
+      });
+    }
+    
+    console.log(`   📊 Chunk ${chunkIndex} locked (${previousStatus} → in_progress, ID: ${processingId.slice(-6)})`);
     
     // Get merged scenes
     const mergedScenes: MergedScene[] = chunkProgress.mergedScenes || [];
@@ -176,79 +246,39 @@ export async function POST(request: NextRequest) {
     // Get script data
     const scriptData = chunkProgress.scriptData;
     const characters = scriptData?.characters || [];
+    const scriptScenes = scriptData?.scenes || [];
     
     // ═══════════════════════════════════════════════════════════════════
-    // STEP 1: Call Gemini for visual description ONLY (with retry)
+    // STEP 1: Call FAL.AI for visual description (no geo-restrictions!)
     // ═══════════════════════════════════════════════════════════════════
-    console.log(`\n🤖 Calling Gemini for visual descriptions...`);
+    console.log(`\n🎬 Calling fal.ai/video-understanding for visual descriptions...`);
     
     let geminiResponse: any = null;
-    const MAX_RETRIES = 2; // Reduced from 3 to 2 for faster failure
-    const GEMINI_TIMEOUT = 60000; // 60 seconds max per attempt
     
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-      try {
-        const replicatePool = getReplicatePool();
-        const { client: replicate, release } = await replicatePool.getLeastLoadedClient();
-        
-        // V5 prompt: ТОЛЬКО описание и тип плана, НЕ диалоги
-        const v5Prompt = buildV5Prompt(scenesInChunk, characters);
-        
-        try {
-          // Add timeout wrapper
-          const timeoutPromise = new Promise((_, reject) => {
-            setTimeout(() => reject(new Error('Gemini timeout after 60s')), GEMINI_TIMEOUT);
-          });
-          
-          const output = await Promise.race([
-            replicate.run(
-              "google/gemini-2.5-flash",  // Faster and cheaper for visual descriptions
-              {
-                input: {
-                  prompt: v5Prompt,
-                  videos: [chunkUrl],  // gemini-2.5-flash expects array
-                  temperature: 0.3,
-                  max_tokens: 4000, // Reduced from 8000 for faster processing
-                }
-              }
-            ),
-            timeoutPromise
-          ]) as any;
-          
-          geminiResponse = parseGeminiOutput(output);
-          console.log(`   ✅ Gemini returned ${geminiResponse?.plans?.length || 0} plan descriptions`);
-          break; // Success, exit retry loop
-        } finally {
-          release(); // Always release the client
-        }
-        
-      } catch (geminiError: any) {
-        // Детальное логирование ошибки для диагностики
-        const errorType = geminiError?.cause?.code || geminiError?.code || 'UNKNOWN';
-        const errorMessage = geminiError?.message || String(geminiError);
-        const isNetworkError = errorType === 'UND_ERR_SOCKET' ||
-                               errorType === 'UND_ERR_HEADERS_TIMEOUT' ||
-                               errorMessage?.includes('fetch failed') ||
-                               errorMessage?.includes('timeout') ||
-                               errorMessage?.includes('ECONNRESET') ||
-                               errorMessage?.includes('ETIMEDOUT');
-        
-        console.log(`   ⚠️ Gemini error (attempt ${attempt}/${MAX_RETRIES}):`);
-        console.log(`      Type: ${errorType}`);
-        console.log(`      Message: ${errorMessage?.slice(0, 200)}`);
-        console.log(`      Is network error: ${isNetworkError}`);
-        
-        if (isNetworkError && attempt < MAX_RETRIES) {
-          const delay = attempt * 3000; // Reduced: 3s, 6s (was 5s, 10s, 15s)
-          console.log(`   ⚠️ Network/timeout error (attempt ${attempt}/${MAX_RETRIES}), retrying in ${delay/1000}s...`);
-          await new Promise(r => setTimeout(r, delay));
-        } else {
-          console.log(`   ⚠️ Gemini failed after ${attempt} attempts, continuing without visual descriptions`);
-          console.log(`      Final error: ${errorType} - ${errorMessage?.slice(0, 200)}`);
-          // Continue without Gemini descriptions - dialogues from ASR are more important
-          break; // Exit retry loop, continue processing
-        }
+    try {
+      const falResult = await analyzeVideoChunk(
+        chunkUrl,
+        scenesInChunk.map(s => ({
+          start_timecode: s.start_timecode,
+          end_timecode: s.end_timecode
+        })),
+        characters,
+        scriptScenes
+      );
+      
+      if (falResult.success && falResult.plans.length > 0) {
+        geminiResponse = { plans: falResult.plans };
+        console.log(`   ✅ FAL returned ${falResult.plans.length} plan descriptions`);
+      } else if (falResult.rawOutput) {
+        console.log(`   ⚠️ FAL returned raw output (no JSON), parsing manually...`);
+        // Попробуем извлечь хоть какую-то информацию из rawOutput
+        geminiResponse = { plans: [], rawDescription: falResult.rawOutput };
+      } else {
+        console.log(`   ⚠️ FAL failed: ${falResult.error}`);
       }
+    } catch (falError: any) {
+      console.log(`   ⚠️ FAL error: ${falError.message}`);
+      console.log(`   Continuing without visual descriptions...`);
     }
     
     // ═══════════════════════════════════════════════════════════════════
@@ -257,6 +287,7 @@ export async function POST(request: NextRequest) {
     console.log(`\n🎤 Building dialogues from ASR...`);
     
     const planDialogues: Map<number, DialogueLine[]> = new Map();
+    const usedWords = new Set<string>(); // Дедупликация: слова уже использованные в предыдущих сценах
     
     for (let sceneIndex = 0; sceneIndex < scenesInChunk.length; sceneIndex++) {
       const scene = scenesInChunk[sceneIndex];
@@ -264,17 +295,47 @@ export async function POST(request: NextRequest) {
       const sceneEndMs = scene.end_timestamp * 1000;
       
       // Get words in this scene
-      // УВЕЛИЧЕНО контекстное окно с ±500ms до ±1000ms для захвата полных реплик
-      // Это исправляет проблему обрезания реплик (например, "столкн..." вместо "столкнулись")
-      const CONTEXT_WINDOW_MS = 1000; // Увеличено с 500ms для захвата полных реплик
-      let wordsInScene = fullDiarizationWords.filter(
-        w => w.startMs >= sceneStartMs - CONTEXT_WINDOW_MS && w.endMs <= sceneEndMs + CONTEXT_WINDOW_MS
-      );
+      // СТРОГИЙ фильтр: слова попадают ТОЛЬКО если их середина внутри сцены
+      // НЕТ forward window - это предотвращает "езду" слов в предыдущие сцены
+      const BACKWARD_WINDOW_MS = 300; // Назад 300ms (только для обрезанных слов на границе)
       
-      // Log scene info for debugging (only for problematic timecodes)
-      const sceneTimecode = `${Math.floor(sceneStartMs / 60000)}:${Math.floor((sceneStartMs % 60000) / 1000)}:${Math.floor((sceneStartMs % 1000) / 10)}`;
-      if (sceneTimecode.includes('15:01') || sceneTimecode.includes('15:02') || sceneTimecode.includes('15:03') || sceneTimecode.includes('15:04')) {
-        console.log(`   🔍 Scene ${sceneIndex} (${sceneTimecode}): ${wordsInScene.length} words before filtering`);
+      let wordsInScene = fullDiarizationWords.filter(w => {
+        // Используем середину слова для более точного определения принадлежности к сцене
+        const wordMidMs = w.startMs + (w.endMs - w.startMs) / 2;
+        
+        // Слово попадает в сцену ТОЛЬКО если его середина внутри сцены (с небольшим окном назад)
+        // НЕТ forward window - слова не должны "ехать" в предыдущие сцены
+        const isMidInScene = wordMidMs >= sceneStartMs - BACKWARD_WINDOW_MS && 
+                            wordMidMs <= sceneEndMs;
+        
+        // ИЛИ начало слова в сцене (для коротких слов на границе)
+        const isStartInScene = w.startMs >= sceneStartMs - BACKWARD_WINDOW_MS && 
+                              w.startMs <= sceneEndMs;
+        
+        return isMidInScene || isStartInScene;
+      });
+      
+      // Дедупликация: удаляем слова уже использованные в предыдущих сценах
+      // Это предотвращает "езду" слов между соседними сценами
+      wordsInScene = wordsInScene.filter(w => {
+        const wordKey = `${w.startMs}-${w.endMs}-${w.text}-${w.speaker}`;
+        if (usedWords.has(wordKey)) {
+          return false; // Уже использовано в предыдущей сцене
+        }
+        usedWords.add(wordKey); // Помечаем как использованное
+        return true;
+      });
+      
+      // Log scene info for debugging
+      const sceneTimecode = `${Math.floor(sceneStartMs / 60000)}:${Math.floor((sceneStartMs % 60000) / 1000).toString().padStart(2, '0')}:${Math.floor((sceneStartMs % 1000) / 10).toString().padStart(2, '0')}`;
+      
+      // DEBUG: Показываем спикеров в каждой сцене первых 10 минут
+      const isEarlyScene = sceneStartMs < 600000; // Первые 10 минут
+      if (isEarlyScene && sceneIndex % 10 === 0) {
+        // Показываем каждую 10-ю сцену для экономии логов
+        const speakersInScene = [...new Set(wordsInScene.map(w => w.speaker).filter(Boolean))];
+        const speakersMapped = speakersInScene.map(s => `${s}→${speakerCharacterMap[s] || '?'}`);
+        console.log(`   📊 Scene ${sceneIndex} (${sceneTimecode}): ${wordsInScene.length} words, speakers: [${speakersMapped.join(', ')}]`);
       }
       
       // Filter out false positives (music, credits, background noise)
@@ -325,6 +386,24 @@ export async function POST(request: NextRequest) {
         return true;
       });
       
+      // DEBUG: Детальный лог для проблемных таймкодов (03:00-03:10 и 06:00-06:30)
+      const isProblematicTimecode = 
+        (sceneStartMs >= 180000 && sceneStartMs <= 190000) ||  // 03:00-03:10
+        (sceneStartMs >= 360000 && sceneStartMs <= 390000);    // 06:00-06:30
+      
+      if (isProblematicTimecode && wordsInScene.length > 0) {
+        const uniqueSpeakers = [...new Set(wordsInScene.map(w => w.speaker).filter(Boolean))];
+        console.log(`\n   🎯 PROBLEM ZONE Scene ${sceneIndex} (${sceneTimecode}):`);
+        console.log(`      Words count: ${wordsInScene.length}`);
+        console.log(`      Speakers: [${uniqueSpeakers.join(', ')}]`);
+        console.log(`      Speaker→Character mapping:`);
+        uniqueSpeakers.forEach(sp => {
+          const char = speakerCharacterMap[sp];
+          console.log(`         ${sp} → ${char || '❌ NOT MAPPED'}`);
+        });
+        console.log(`      First 5 words: ${wordsInScene.slice(0, 5).map(w => `"${w.text}"`).join(', ')}`);
+      }
+      
       // Group by speaker with pause detection for accurate dialogue splitting
       const dialogues: DialogueLine[] = [];
       let currentDialogue: DialogueLine | null = null;
@@ -344,7 +423,8 @@ export async function POST(request: NextRequest) {
           const isMapped = !!speakerCharacterMap[speaker];
           // Inline timecode formatting (msToTimecode defined later in file)
           const wordTimecode = `${Math.floor(word.startMs / 60000)}:${String(Math.floor((word.startMs % 60000) / 1000)).padStart(2, '0')}`;
-          console.log(`   🔍 [${wordTimecode}] Word "${word.text?.slice(0, 20)}" (${speaker} → ${character}, mapped: ${isMapped})`);
+          const sceneTimecodeForWord = `${Math.floor(sceneStartMs / 60000)}:${Math.floor((sceneStartMs % 60000) / 1000).toString().padStart(2, '0')}:${Math.floor((sceneStartMs % 1000) / 10).toString().padStart(2, '0')}`;
+          console.log(`   🔍 [${wordTimecode}] Word "${word.text?.slice(0, 20)}" (${speaker} → ${character}, mapped: ${isMapped}) → Scene ${sceneIndex} (${sceneTimecodeForWord})`);
         }
         
         // Check for pause between words (same speaker) - split dialogue if pause > threshold
@@ -467,6 +547,7 @@ export async function POST(request: NextRequest) {
     console.log(`\n📝 Creating montage entries...`);
     
     let plansCreated = 0;
+    const geminiHints: Record<string, number> = {}; // Собираем статистику по Gemini hints
     
     for (let sceneIndex = 0; sceneIndex < scenesInChunk.length; sceneIndex++) {
       const scene = scenesInChunk[sceneIndex];
@@ -474,8 +555,26 @@ export async function POST(request: NextRequest) {
       // Get Gemini description for this plan (by index)
       const geminiPlan = geminiResponse?.plans?.[sceneIndex];
       
+      // Если Gemini определил говорящего персонажа — собираем статистику (без отдельного лога)
+      const geminiSpeakingCharacter = geminiPlan?.speakingCharacter?.toUpperCase();
+      if (geminiSpeakingCharacter && characters.some((c: any) => c.name?.toUpperCase() === geminiSpeakingCharacter)) {
+        geminiHints[geminiSpeakingCharacter] = (geminiHints[geminiSpeakingCharacter] || 0) + 1;
+      }
+      
       // Get dialogues for this plan
-      const dialogues = planDialogues.get(sceneIndex) || [];
+      let dialogues = planDialogues.get(sceneIndex) || [];
+      
+      // Если ASR не уверен в персонаже, но Gemini подсказал — используем подсказку
+      if (geminiSpeakingCharacter && dialogues.length > 0) {
+        const updatedDialogues = dialogues.map(d => {
+          // Если персонаж не определён или это UNKNOWN — используем подсказку Gemini
+          if (!d.character || d.character === 'UNKNOWN' || d.character === '???') {
+            return { ...d, character: geminiSpeakingCharacter, geminiHint: true };
+          }
+          return d;
+        });
+        dialogues = updatedDialogues;
+      }
       
       // Format dialogues with EXACT timestamps
       const dialogueText = dialogues
@@ -578,6 +677,16 @@ export async function POST(request: NextRequest) {
       console.error(`   Chunk: ${chunkIndex}, Scenes: ${scenesInChunk.length}, Plan offset: ${scenesBeforeThisChunk}`);
     }
     
+    // Сводка по Gemini hints (компактно)
+    const hintsCount = Object.values(geminiHints).reduce((sum, n) => sum + n, 0);
+    if (hintsCount > 0) {
+      const hintsSummary = Object.entries(geminiHints)
+        .sort((a, b) => b[1] - a[1])
+        .map(([char, count]) => `${char}:${count}`)
+        .join(', ');
+      console.log(`   🎯 Gemini hints (${hintsCount}): ${hintsSummary}`);
+    }
+    
     // Всегда выводим формат X/Y для отслеживания
     if (plansCreated === expectedPlans) {
       console.log(`   ✅ Created ${plansCreated}/${expectedPlans} entries (все планы созданы)`);
@@ -608,24 +717,53 @@ export async function POST(request: NextRequest) {
       (c: any) => c.status === 'completed'
     ).length;
     
-    // Check for pending chunks
+    // Check for pending chunks (включая failed с retry < 3)
+    const MAX_CHUNK_RETRIES = 3;
     const pendingChunks = freshProgress.chunks.filter(
-      (c: any) => (c.status === 'ready' || c.status === 'pending') && c.storageUrl
+      (c: any) => {
+        // Ready или pending чанки (НЕ triggering — он уже взят)
+        if ((c.status === 'ready' || c.status === 'pending') && c.storageUrl) return true;
+        // Failed чанки с retry < 3
+        if (c.status === 'failed' && (c.retryCount || 0) < MAX_CHUNK_RETRIES && c.storageUrl) {
+          console.log(`   🔄 Will retry failed chunk ${c.index} (attempt ${(c.retryCount || 0) + 1}/${MAX_CHUNK_RETRIES})`);
+          return true;
+        }
+        // Проверяем застрявшие 'triggering' — если >30 сек, запрос не дошёл
+        if (c.status === 'triggering' && c.storageUrl) {
+          const triggeredAt = c.triggered_at ? new Date(c.triggered_at).getTime() : 0;
+          const isStuckTriggering = triggeredAt > 0 && (Date.now() - triggeredAt) > 30000;
+          if (isStuckTriggering) {
+            console.log(`   ⚠️  Chunk ${c.index} stuck in triggering >30s, resetting...`);
+            c.status = 'pending';
+            return true;
+          }
+        }
+        return false;
+      }
     );
     const inProgressChunks = freshProgress.chunks.filter(
-      (c: any) => c.status === 'in_progress'
+      (c: any) => c.status === 'in_progress' || c.status === 'triggering'
     );
     
     const MAX_CONCURRENT = 3;
     const canTriggerMore = inProgressChunks.length < MAX_CONCURRENT && pendingChunks.length > 0;
     
+    // Диагностика: логируем состояние для отладки
+    if (pendingChunks.length > 0 && !canTriggerMore) {
+      console.log(`   ⚠️ Can't trigger next chunk: ${inProgressChunks.length}/${MAX_CONCURRENT} in progress, ${pendingChunks.length} pending`);
+    }
+    
     if (canTriggerMore) {
       // Trigger next pending chunk (fire-and-forget)
       const nextChunk = pendingChunks[0];
-      console.log(`\n🔄 Triggering next chunk ${nextChunk.index + 1} (${pendingChunks.length} pending)...`);
+      const isRetry = nextChunk.status === 'failed';
       
-      // Mark as in_progress BEFORE saving to prevent race condition
-      freshProgress.chunks[nextChunk.index].status = 'in_progress';
+      console.log(`\n🔄 Triggering ${isRetry ? 'RETRY' : 'next'} chunk ${nextChunk.index + 1} (${pendingChunks.length} pending, ${inProgressChunks.length}/${MAX_CONCURRENT} in progress)...`);
+      
+      // АТОМАРНАЯ БЛОКИРОВКА: помечаем чанк как 'triggering' СРАЗУ
+      // Это предотвращает дублирование если два воркера завершились одновременно
+      freshProgress.chunks[nextChunk.index].status = 'triggering';
+      freshProgress.chunks[nextChunk.index].triggered_at = new Date().toISOString();
     }
     
     // Save updated progress (atomic update)
@@ -648,43 +786,78 @@ export async function POST(request: NextRequest) {
                        ? `${requestUrl.protocol}//${requestUrl.host}`
                        : `http://localhost:${process.env.PORT || 3000}`);
       
-      // Fire and forget with timeout (compatible with Node.js 18+)
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5s timeout
-      
-      fetch(`${baseUrl}/api/process-chunk-v5`, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          // Pass internal header to avoid middleware checks
-          'x-internal-request': 'true',
-        },
-        body: JSON.stringify({
-          videoId,
-          chunkIndex: nextChunk.index,
-          chunkUrl: nextChunk.storageUrl,
-          startTimecode: nextChunk.startTimecode,
-          endTimecode: nextChunk.endTimecode,
-        }),
-        signal: controller.signal,
-      })
-      .then(() => {
-        clearTimeout(timeoutId);
-        console.log(`   ✅ Triggered chunk ${nextChunk.index + 1}`);
-      })
-      .catch((err) => {
-        clearTimeout(timeoutId);
-        // Don't log AbortError (timeout) as error - it's expected for fire-and-forget
-        if (err.name !== 'AbortError') {
-          console.error(`   ❌ Failed to trigger chunk ${nextChunk.index + 1}:`, err.message);
+      // Trigger with retry mechanism
+      const triggerWithRetry = async (maxRetries = 3, timeout = 10000) => {
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), timeout);
+            
+            await fetch(`${baseUrl}/api/process-chunk-v5`, {
+              method: 'POST',
+              headers: { 
+                'Content-Type': 'application/json',
+                'x-internal-request': 'true',
+              },
+              body: JSON.stringify({
+                videoId,
+                chunkIndex: nextChunk.index,
+                chunkUrl: nextChunk.storageUrl,
+                startTimecode: nextChunk.startTimecode,
+                endTimecode: nextChunk.endTimecode,
+              }),
+              signal: controller.signal,
+            });
+            
+            clearTimeout(timeoutId);
+            console.log(`   ✅ Triggered chunk ${nextChunk.index + 1}`);
+            return; // Success!
+          } catch (err: any) {
+            if (attempt < maxRetries) {
+              const delay = attempt * 2000; // 2s, 4s
+              console.log(`   ⚠️ Chunk ${nextChunk.index + 1} trigger attempt ${attempt} failed, retrying in ${delay/1000}s...`);
+              await new Promise(r => setTimeout(r, delay));
+            } else {
+              console.error(`   ❌ Chunk ${nextChunk.index + 1} trigger failed after ${maxRetries} attempts`);
+              // Reset chunk status to pending so it can be retried
+              try {
+                const { data: currentVideo } = await supabase
+                  .from('videos')
+                  .select('chunk_progress_json')
+                  .eq('id', videoId)
+                  .single();
+                
+                if (currentVideo?.chunk_progress_json) {
+                  const progress = currentVideo.chunk_progress_json;
+                  const chunkStatus = progress.chunks[nextChunk.index]?.status;
+                  // Only reset if still in triggering state (not picked up by another worker)
+                  if (chunkStatus === 'triggering') {
+                    progress.chunks[nextChunk.index].status = 'pending';
+                    progress.chunks[nextChunk.index].processing_id = null;
+                    await supabase
+                      .from('videos')
+                      .update({ chunk_progress_json: progress })
+                      .eq('id', videoId);
+                    console.log(`   🔄 Reset chunk ${nextChunk.index + 1} to pending for retry`);
+                  }
+                }
+              } catch (resetErr) {
+                console.error(`   ❌ Failed to reset chunk status:`, resetErr);
+              }
+            }
+          }
         }
-        // Chunk will be picked up by another worker or manual retry
-      });
+      };
+      
+      // Fire and forget but with retry
+      triggerWithRetry().catch(() => {});
     }
     
     // Auto-finalize when all chunks are done
-    if (chunkProgress.completedChunks === chunkProgress.totalChunks) {
+    // ВАЖНО: используем freshProgress, а не старый chunkProgress!
+    if (freshProgress.completedChunks === freshProgress.totalChunks) {
       console.log(`\n🏁 All chunks complete! Finalizing video...`);
+      console.log(`   completedChunks: ${freshProgress.completedChunks}/${freshProgress.totalChunks}`);
       
       try {
         // Update video status
@@ -697,7 +870,7 @@ export async function POST(request: NextRequest) {
         await supabase
           .from('montage_sheets')
           .update({ status: 'ready' })
-          .eq('id', chunkProgress.sheetId);
+          .eq('id', freshProgress.sheetId);
         
         console.log(`✅ Video finalized successfully!`);
       } catch (finalizeError) {
@@ -716,6 +889,37 @@ export async function POST(request: NextRequest) {
     
   } catch (error) {
     console.error('❌ Process chunk V5 error:', error);
+    
+    // ВАЖНО: При ошибке сбрасываем статус чанка, чтобы его можно было повторить
+    try {
+      const supabase = createServiceRoleClient();
+      const body = await request.clone().json().catch(() => ({}));
+      const { videoId, chunkIndex } = body;
+      
+      if (videoId && chunkIndex !== undefined) {
+        const { data: video } = await supabase
+          .from('videos')
+          .select('chunk_progress_json')
+          .eq('id', videoId)
+          .single();
+        
+        if (video?.chunk_progress_json?.chunks?.[chunkIndex]) {
+          video.chunk_progress_json.chunks[chunkIndex].status = 'failed';
+          video.chunk_progress_json.chunks[chunkIndex].error = error instanceof Error ? error.message : 'Unknown error';
+          video.chunk_progress_json.chunks[chunkIndex].failed_at = new Date().toISOString();
+          
+          await supabase
+            .from('videos')
+            .update({ chunk_progress_json: video.chunk_progress_json })
+            .eq('id', videoId);
+          
+          console.log(`   📛 Chunk ${chunkIndex} marked as failed (can be retried)`);
+        }
+      }
+    } catch (resetError) {
+      console.error('   ⚠️ Failed to reset chunk status:', resetError);
+    }
+    
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Failed to process chunk' },
       { status: 500 }
@@ -736,17 +940,33 @@ function parseTimecodeToMs(timecode: string): number {
   return 0;
 }
 
-function buildV5Prompt(scenes: MergedScene[], characters: any[]): string {
-  const characterList = characters.slice(0, 10).map(c => c.name).join(', ');
+function buildV5Prompt(scenes: MergedScene[], characters: any[], scriptScenes?: any[]): string {
+  const characterList = characters.slice(0, 15).map(c => {
+    // Добавляем описание персонажа если есть
+    const desc = c.description ? ` (${c.description.slice(0, 50)})` : '';
+    return `${c.name}${desc}`;
+  }).join('\n- ');
+  
+  // Находим релевантные сцены из сценария (если есть)
+  let sceneContext = '';
+  if (scriptScenes && scriptScenes.length > 0) {
+    const relevantScenes = scriptScenes.slice(0, 5).map(s => {
+      const chars = s.characters?.length > 0 ? s.characters.join(', ') : 'не указаны';
+      return `  • ${s.sceneNumber} ${s.location}: ${chars}`;
+    }).join('\n');
+    sceneContext = `\nСЦЕНЫ ИЗ СЦЕНАРИЯ (персонажи в каждой сцене):\n${relevantScenes}\n`;
+  }
   
   return `Ты монтажёр. Проанализируй видео и опиши ВИЗУАЛЬНУЮ ИНФОРМАЦИЮ для каждого плана.
 
-ПЕРСОНАЖИ ИЗ СЦЕНАРИЯ: ${characterList || 'не указаны'}
-
+ПЕРСОНАЖИ ИЗ СЦЕНАРИЯ:
+- ${characterList || 'не указаны'}
+${sceneContext}
 ВАЖНО: 
-- НЕ определяй кто говорит — это делается через аудио-диаризацию!
-- Описывай ТОЛЬКО что ВИДНО в кадре
+- Описывай что ВИДНО в кадре
 - Определяй тип плана (Кр./Ср./Общ./Деталь)
+- Если видишь говорящего персонажа — опиши его внешность
+- Если можешь определить КТО говорит по губам/жестам — укажи в поле "speakingCharacter"
 
 ПЛАНЫ ДЛЯ АНАЛИЗА:
 ${scenes.map((s, i) => `План ${i + 1}: ${s.start_timecode} - ${s.end_timecode}`).join('\n')}
@@ -759,6 +979,7 @@ ${scenes.map((s, i) => `План ${i + 1}: ${s.start_timecode} - ${s.end_timecod
       "planType": "Ср.",
       "description": "Женщина в золотом платье стоит у стойки ресепшн",
       "visualCharacters": ["женщина в золотом", "мужчина в костюме"],
+      "speakingCharacter": "ГАЛИНА",
       "location": "холл салона"
     }
   ]

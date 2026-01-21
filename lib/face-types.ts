@@ -27,7 +27,8 @@ export interface FaceInstance {
 
 export interface FaceCluster {
   clusterId: string;        // "FACE_0", "FACE_1", ...
-  faces: FaceInstance[];    // Все экземпляры этого лица
+  faces: FaceInstance[];    // Все экземпляры этого лица (может быть пустым в worker mode)
+  faceTimestamps?: number[]; // Timestamps лиц (сек) - используется когда faces пустой
   centroid: Float32Array | number[];   // Центроид для сравнения
   appearances: number;      // Сколько раз появлялся
   firstSeen: number;        // Первое появление (сек)

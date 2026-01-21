@@ -89,16 +89,19 @@ export function detectOpeningCredits(
         prevAvgDuration = prevTotal / 4;
       }
       
-      // КРИТЕРИЙ 1: Резкий скачок длительности (сцены стали в 1.5+ раз длиннее)
-      const durationJump = prevAvgDuration > 0 && avgDuration > prevAvgDuration * 1.5;
+      // КРИТЕРИЙ 1: Резкий скачок длительности (сцены стали в 2x+ раз длиннее)
+      // Увеличили с 1.5 до 2.0 — меньше ложных срабатываний
+      const durationJump = prevAvgDuration > 0 && avgDuration > prevAvgDuration * 2.0;
       
-      // КРИТЕРИЙ 2: Средняя длительность > 2.5 сек (диалоговые сцены)
-      const longScenes = avgDuration > 2.5;
+      // КРИТЕРИЙ 2: Средняя длительность > 3.5 сек (явно диалоговые сцены)
+      // Увеличили с 2.5 до 3.5 — заставки бывают с длинными кадрами
+      const longScenes = avgDuration > 3.5;
       
-      // КРИТЕРИЙ 3: Мы уже прошли минимум 30 секунд (логотип + начало заставки)
-      const pastMinimum = scene.timestamp > 30;
+      // КРИТЕРИЙ 3: Мы уже прошли минимум 60 секунд (типичная заставка ~62 сек)
+      // Увеличили с 30 до 60 — не обрезаем заставку раньше времени
+      const pastMinimum = scene.timestamp > 60;
       
-      if (pastMinimum && (durationJump || (longScenes && i > 8))) {
+      if (pastMinimum && (durationJump || (longScenes && i > 15))) {
         creditsEndIndex = i - 1;
         lastTimestamp = scenes[i - 1].timestamp;
         console.log(`Credits end: avgDuration=${avgDuration.toFixed(2)}s, prevAvg=${prevAvgDuration.toFixed(2)}s, jump=${durationJump}, at ${lastTimestamp.toFixed(1)}s`);
@@ -114,6 +117,8 @@ export function detectOpeningCredits(
   // Минимум 10 сцен за первые 90 секунд
   const scenesInFirst90 = scenes.filter(s => s.timestamp < 90).length;
   const isCredits = scenesInFirst90 >= 10 && creditsEndIndex >= 5;
+  
+  // Убрали хардкод — заставка определяется алгоритмически
   
   if (isCredits) {
     console.log(`Detected OPENING CREDITS: ${creditsEndIndex + 1} scenes, ends at ${lastTimestamp.toFixed(1)}s`);
@@ -243,7 +248,10 @@ export function mergeCreditsScenes(
   scenes: FFmpegScene[],
   videoDuration: number,
   fps: number = 24,
-  options: { skipCreditsMerging?: boolean } = {}
+  options: { 
+    skipCreditsMerging?: boolean;
+    firstDialogueTime?: number;  // Время первого диалога (сек) — для умной детекции конца заставки
+  } = {}
 ): MergedScene[] {
   if (scenes.length === 0) {
     return [];
@@ -278,7 +286,34 @@ export function mergeCreditsScenes(
   }
 
   // Детектируем заставку
-  const opening = detectOpeningCredits(scenes, videoDuration);
+  let opening = detectOpeningCredits(scenes, videoDuration);
+
+  // АУДИО-ДЕТЕКЦИЯ: Если есть время первого диалога — используем его для уточнения
+  // Заставка заканчивается когда начинаются диалоги!
+  if (options.firstDialogueTime && options.firstDialogueTime > 10) {
+    const dialogueStart = options.firstDialogueTime;
+    
+    // Ищем сцену ближайшую к началу диалога (минус 2 сек буфер)
+    const creditsEndTime = dialogueStart - 2;
+    const nearestSceneIdx = scenes.findIndex(s => s.timestamp >= creditsEndTime);
+    
+    if (nearestSceneIdx > 0 && creditsEndTime > 30) {
+      const audioBasedEndIndex = nearestSceneIdx - 1;
+      const audioBasedEndTimestamp = scenes[audioBasedEndIndex].timestamp;
+      
+      console.log(`🎤 Audio-based credits detection: first dialogue at ${dialogueStart.toFixed(1)}s`);
+      console.log(`   Credits end adjusted: ${opening.endTimestamp.toFixed(1)}s → ${audioBasedEndTimestamp.toFixed(1)}s`);
+      
+      // Используем аудио-детекцию если она даёт разумный результат
+      if (audioBasedEndTimestamp > 20 && audioBasedEndTimestamp < 120) {
+        opening = {
+          isCredits: true,
+          endIndex: audioBasedEndIndex,
+          endTimestamp: audioBasedEndTimestamp,
+        };
+      }
+    }
+  }
 
   // Детектируем финальные титры
   const closing = detectClosingCredits(scenes, videoDuration);

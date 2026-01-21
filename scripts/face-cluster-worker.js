@@ -224,7 +224,8 @@ function clusterFaces(faces, distanceThreshold, minAppearances) {
     firstSeen: c.firstSeen,
     lastSeen: c.lastSeen,
     centroid: c.centroid,
-    // Don't include all faces - too much data
+    // Include timestamps only (not full face descriptors) for Face Presence Evidence
+    faceTimestamps: c.faces.map(f => f.timestamp),
   }));
 }
 

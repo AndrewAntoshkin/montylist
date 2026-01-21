@@ -3,13 +3,21 @@ import Replicate from 'replicate';
 /**
  * Пул Replicate API клиентов для параллельной обработки
  * Автоматически распределяет нагрузку между несколькими API ключами
+ * 
+ * Улучшения стабильности:
+ * - Проверка доступности сервиса
+ * - Fallback на другой ключ при ошибке
+ * - Экспоненциальная задержка между retry
  */
 
 interface ReplicateClient {
   client: Replicate;
   activeRequests: number;
   keyIndex: number;
-  maxConcurrent: number; // Maximum concurrent requests per key
+  maxConcurrent: number;
+  lastError?: string;
+  lastErrorTime?: number;
+  consecutiveErrors: number;
 }
 
 class ReplicatePool {
@@ -51,11 +59,103 @@ class ReplicatePool {
       activeRequests: 0,
       keyIndex: index + 1,
       maxConcurrent: this.MAX_CONCURRENT_PER_KEY,
+      consecutiveErrors: 0,
     }));
 
     console.log(
       `🔑 Initialized Replicate pool with ${this.clients.length} API key(s) (max ${this.MAX_CONCURRENT_PER_KEY} request per key for stability)`
     );
+  }
+
+  /**
+   * Проверить доступность сервиса Replicate
+   */
+  async checkServiceAvailable(): Promise<{ available: boolean; error?: string }> {
+    if (this.clients.length === 0) {
+      return { available: false, error: 'No clients configured' };
+    }
+
+    try {
+      const client = this.clients[0].client;
+      // Простой тест - получить информацию о модели
+      await client.models.get('google', 'gemini-2.5-flash');
+      console.log('✅ Replicate service is available');
+      return { available: true };
+    } catch (e: any) {
+      const error = e?.message || String(e);
+      console.error('❌ Replicate service check failed:', error);
+      return { available: false, error };
+    }
+  }
+
+  /**
+   * Отметить ошибку для клиента
+   */
+  markClientError(keyIndex: number, error: string) {
+    const client = this.clients.find(c => c.keyIndex === keyIndex);
+    if (client) {
+      client.lastError = error;
+      client.lastErrorTime = Date.now();
+      client.consecutiveErrors++;
+      console.log(`⚠️ API key #${keyIndex} error count: ${client.consecutiveErrors}`);
+    }
+  }
+
+  /**
+   * Сбросить ошибки для клиента после успеха
+   */
+  markClientSuccess(keyIndex: number) {
+    const client = this.clients.find(c => c.keyIndex === keyIndex);
+    if (client) {
+      client.consecutiveErrors = 0;
+      client.lastError = undefined;
+    }
+  }
+
+  /**
+   * Получить клиент, исключая проблемные (с недавними ошибками)
+   */
+  async getHealthyClient(): Promise<{
+    client: Replicate;
+    keyIndex: number;
+    release: () => void;
+  }> {
+    const now = Date.now();
+    const ERROR_COOLDOWN_MS = 30000; // 30 сек кулдаун после ошибки
+
+    // Сортируем клиенты: меньше ошибок = приоритет
+    const sortedClients = [...this.clients].sort((a, b) => {
+      // Если у клиента была ошибка недавно, понижаем приоритет
+      const aRecentError = a.lastErrorTime && (now - a.lastErrorTime) < ERROR_COOLDOWN_MS;
+      const bRecentError = b.lastErrorTime && (now - b.lastErrorTime) < ERROR_COOLDOWN_MS;
+      
+      if (aRecentError && !bRecentError) return 1;
+      if (!aRecentError && bRecentError) return -1;
+      
+      // Меньше consecutive errors = лучше
+      return a.consecutiveErrors - b.consecutiveErrors;
+    });
+
+    // Ищем доступный клиент
+    for (const client of sortedClients) {
+      if (client.activeRequests < client.maxConcurrent) {
+        client.activeRequests++;
+        console.log(
+          `🔑 Using API key #${client.keyIndex} (healthy, errors: ${client.consecutiveErrors}, ${client.activeRequests}/${client.maxConcurrent} active)`
+        );
+        return {
+          client: client.client,
+          keyIndex: client.keyIndex,
+          release: () => {
+            client.activeRequests--;
+            console.log(`🔓 Released API key #${client.keyIndex}`);
+          },
+        };
+      }
+    }
+
+    // Если все заняты, используем обычный метод с ожиданием
+    return this.getLeastLoadedClient();
   }
 
   /**

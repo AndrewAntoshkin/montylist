@@ -71,8 +71,13 @@ export function detectFacePresence(
     let totalDuration = 0;
     let appearances = 0;
     
-    for (const face of cluster.faces) {
-      const faceTimeMs = face.timestamp * 1000;
+    // Используем faceTimestamps если faces пустой (worker mode)
+    const timestamps = cluster.faces && cluster.faces.length > 0
+      ? cluster.faces.map(f => f.timestamp)
+      : (cluster.faceTimestamps || []);
+    
+    for (const faceTimestamp of timestamps) {
+      const faceTimeMs = faceTimestamp * 1000;
       
       // Проверяем, попадает ли это появление в окно речи
       if (faceTimeMs >= speechWindow.startMs && faceTimeMs <= speechWindow.endMs) {

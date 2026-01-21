@@ -230,13 +230,27 @@ export async function POST(request: NextRequest) {
         const { performFullDiarization } = await import('@/lib/full-audio-diarization');
         
         const characterNames = hasScript 
-          ? scriptData.characters.map((c: any) => c.name).slice(0, 20)
+          ? scriptData.characters.map((c: any) => c.name).slice(0, 15)
           : [];
+        
+        // Добавляем специфичные слова для лучшего распознавания
+        // Это помогает ASR правильно транскрибировать редкие слова
+        // УНИВЕРСАЛЬНЫЙ список: только часто используемые слова, специфичные для русского языка
+        // Персонажи уже включены в characterNames, добавляем только универсальные слова
+        const UNIVERSAL_BOOST_WORDS = [
+          // Универсальные вежливые обращения и слова, часто используемые в фильмах
+          'минуточку', 'пардон', 'присаживайтесь', 'проходите',
+        ];
+        
+        // Используем имена персонажей из сценария + универсальные слова
+        // НЕ добавляем специфичные слова конкретного фильма!
+        const allBoostWords = [...characterNames, ...UNIVERSAL_BOOST_WORDS].slice(0, 20);
+        console.log(`   📝 Word boost: ${allBoostWords.join(', ')}`);
         
         const diarizationResult = await performFullDiarization(
           videoUrl,
           'ru',
-          characterNames,
+          allBoostWords,  // Используем расширенный список
           15  // УВЕЛИЧЕНО с 10 до 15 для лучшего различения всех голосов
         );
         
@@ -267,12 +281,20 @@ export async function POST(request: NextRequest) {
           const asrSegments = groupWordsIntoSegments(fullDiarizationWords);
           console.log(`   ASR segments: ${asrSegments.length}`);
           
-          const alignmentResult = alignASRToScript(asrSegments, scriptLines);
+          // Передаём сцены для scene context evidence
+          const scriptScenes = scriptData?.scenes || [];
+          const alignmentResult = alignASRToScript(asrSegments, scriptLines, scriptScenes);
           
           console.log(`   ✅ Alignment complete:`);
           console.log(`      Matched: ${alignmentResult.totalMatched}`);
           console.log(`      Unmatched: ${alignmentResult.totalUnmatched}`);
           console.log(`      Anchors: ${alignmentResult.anchorCount}`);
+          
+          // Логируем scene context информацию
+          const linksWithSceneContext = alignmentResult.links.filter(l => l.sceneCharacters && l.sceneCharacters.length > 0);
+          if (linksWithSceneContext.length > 0) {
+            console.log(`      Scene context: ${linksWithSceneContext.length} links have character lists`);
+          }
           
           // Build speaker→character mapping
           speakerCharacterMapper.addAlignmentEvidence(alignmentResult);
@@ -406,18 +428,20 @@ export async function POST(request: NextRequest) {
         // Auto-bind faces to characters based on frequency
         if (hasScript && faceClusters.length > 0) {
           const sortedClusters = [...faceClusters].sort((a, b) => b.appearances - a.appearances);
-          const mainCharacters = scriptData.characters
-            .filter((c: { dialogueCount?: number }) => (c.dialogueCount || 0) >= 10)
+          // УЛУЧШЕНО: берём ВСЕХ персонажей из сценария (без фильтра по репликам)
+          // Любой человек в сцене — персонаж, особенно если говорит
+          const allCharacters = scriptData.characters
             .sort((a: { dialogueCount?: number }, b: { dialogueCount?: number }) =>
               (b.dialogueCount || 0) - (a.dialogueCount || 0)
             );
           
-          const boundCount = Math.min(sortedClusters.length, mainCharacters.length, 10);
+          // Привязываем столько лиц, сколько есть персонажей (без жёсткого лимита)
+          const boundCount = Math.min(sortedClusters.length, allCharacters.length);
           for (let i = 0; i < boundCount; i++) {
-            sortedClusters[i].characterName = mainCharacters[i].name?.toUpperCase();
+            sortedClusters[i].characterName = allCharacters[i].name?.toUpperCase();
           }
           
-          console.log(`   🔗 Auto-bound ${boundCount} faces to main characters`);
+          console.log(`   🔗 Auto-bound ${boundCount} faces to characters (all from script)`);
         }
         
       } catch (faceError) {
@@ -425,6 +449,169 @@ export async function POST(request: NextRequest) {
       }
     } else {
       console.log(`\nℹ️  Face Recognition disabled`);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // STEP 4.5: Face Presence Evidence (связь лиц с голосами)
+    // ═══════════════════════════════════════════════════════════════════
+    if (faceClusters.length > 0 && fullDiarizationWords.length > 0) {
+      console.log(`\n🔗 STEP 4.5: Building Face Presence Evidence...`);
+      
+      try {
+        // Создаём face presence evidence для каждого слова диаризации
+        const facePresenceEvidence: Array<{
+          speakerId: string;
+          faceClusterId: string;
+          characterName?: string;
+          startMs: number;
+          endMs: number;
+          dominance: number;
+        }> = [];
+        
+        // Группируем слова по speaker для эффективности
+        const wordsBySpeaker = new Map<string, typeof fullDiarizationWords>();
+        for (const word of fullDiarizationWords) {
+          if (!word.speaker) continue;
+          const existing = wordsBySpeaker.get(word.speaker) || [];
+          existing.push(word);
+          wordsBySpeaker.set(word.speaker, existing);
+        }
+        
+        // Проверяем сколько кластеров имеют characterName
+        const clustersWithName = faceClusters.filter(c => c.characterName);
+        console.log(`   📊 Face clusters with characterName: ${clustersWithName.length}/${faceClusters.length}`);
+        if (clustersWithName.length > 0) {
+          console.log(`   📋 Bound characters: ${clustersWithName.map(c => c.characterName).join(', ')}`);
+          
+          // Диагностика: проверяем структуру faces
+          const clustersWithTimestamps = clustersWithName.filter(c => {
+            const hasFaces = c.faces && c.faces.length > 0;
+            const hasTimestamps = c.faceTimestamps && c.faceTimestamps.length > 0;
+            return hasFaces || hasTimestamps;
+          });
+          console.log(`   🔍 Clusters with timestamps: ${clustersWithTimestamps.length}/${clustersWithName.length}`);
+          if (clustersWithTimestamps.length > 0) {
+            const sampleCluster = clustersWithTimestamps[0];
+            const timestamps = sampleCluster.faces && sampleCluster.faces.length > 0
+              ? sampleCluster.faces.map(f => f.timestamp)
+              : (sampleCluster.faceTimestamps || []);
+            const count = sampleCluster.faces?.length || sampleCluster.faceTimestamps?.length || 0;
+            console.log(`   📋 Sample cluster: ${sampleCluster.clusterId} (${sampleCluster.characterName}), ${count} timestamps, first: ${timestamps[0]?.toFixed(1) || 'N/A'}s`);
+          }
+        }
+        
+        // Для каждого speaker находим какие лица были видны во время его речи
+        let processedSpeakers = 0;
+        for (const [speakerId, words] of wordsBySpeaker) {
+          // Диагностика: логируем первые 3 speakers
+          if (processedSpeakers < 3) {
+            const sampleWord = words[0];
+            if (sampleWord) {
+              console.log(`   🔍 Processing Speaker ${speakerId}: ${words.length} words, first word at ${sampleWord.startMs / 1000}s`);
+            }
+          }
+          processedSpeakers++;
+          
+          // Считаем сколько раз каждое лицо было видно во время речи этого speaker
+          const facePresenceCounts = new Map<string, number>();
+          
+          for (const word of words) {
+            const wordStartSec = word.startMs / 1000;
+            const wordEndSec = word.endMs / 1000;
+            
+            for (const cluster of faceClusters) {
+              if (!cluster.characterName) continue;
+              
+              // Используем faceTimestamps если faces пустой (worker mode)
+              const timestamps = cluster.faces && cluster.faces.length > 0
+                ? cluster.faces.map(f => f.timestamp)
+                : (cluster.faceTimestamps || []);
+              
+              if (timestamps.length === 0) continue;
+              
+              // Улучшенная временная синхронизация (на основе исследований):
+              // - Forward window: 3.5s (речь может начаться после появления лица)
+              // - Backward window: 1.5s (лицо может появиться чуть раньше речи)
+              const FORWARD_WINDOW_FACE = 3.5;  // Увеличено с 2s
+              const BACKWARD_WINDOW_FACE = 1.5; // Увеличено с 2s
+              
+              const facesInWindow = timestamps.filter(faceTime => {
+                // Диагностика: проверяем что timestamps в правильном формате
+                if (isNaN(faceTime) || faceTime < 0) {
+                  console.log(`   ⚠️ Invalid face timestamp: ${faceTime} for cluster ${cluster.clusterId}`);
+                  return false;
+                }
+                return faceTime >= wordStartSec - BACKWARD_WINDOW_FACE && 
+                       faceTime <= wordEndSec + FORWARD_WINDOW_FACE;
+              });
+              
+              if (facesInWindow.length > 0) {
+                const count = facePresenceCounts.get(cluster.clusterId) || 0;
+                facePresenceCounts.set(cluster.clusterId, count + facesInWindow.length);
+              }
+            }
+          }
+          
+          // Находим доминирующее лицо для этого speaker
+          let maxCount = 0;
+          let dominantCluster: FaceCluster | null = null;
+          
+          for (const [clusterId, count] of facePresenceCounts) {
+            if (count > maxCount) {
+              maxCount = count;
+              dominantCluster = faceClusters.find(c => c.clusterId === clusterId) || null;
+            }
+          }
+          
+          if (dominantCluster && dominantCluster.characterName) {
+            const totalAppearances = Array.from(facePresenceCounts.values()).reduce((a, b) => a + b, 0);
+            const dominance = totalAppearances > 0 ? maxCount / totalAppearances : 0;
+            
+            // Диагностика для первых 3 speakers
+            if (processedSpeakers <= 3) {
+              console.log(`   🔍 Speaker ${speakerId}: dominant=${dominantCluster.characterName}, count=${maxCount}, total=${totalAppearances}, dominance=${(dominance * 100).toFixed(1)}%`);
+            }
+            
+            // Добавляем evidence если dominance > 0.3 (хотя бы 30% времени)
+            if (dominance > 0.3) {
+              facePresenceEvidence.push({
+                speakerId,
+                faceClusterId: dominantCluster.clusterId,
+                characterName: dominantCluster.characterName,
+                startMs: words[0]?.startMs || 0,
+                endMs: words[words.length - 1]?.endMs || 0,
+                dominance,
+              });
+            }
+          }
+        }
+        
+        console.log(`   🔍 Found ${facePresenceEvidence.length} face presence evidence entries`);
+        if (facePresenceEvidence.length > 0) {
+          console.log(`   📋 Evidence samples (first 5):`);
+          facePresenceEvidence.slice(0, 5).forEach(ev => {
+            console.log(`      Speaker ${ev.speakerId} → ${ev.characterName} (dominance: ${(ev.dominance * 100).toFixed(1)}%)`);
+          });
+        } else {
+          console.log(`   ⚠️ No face presence evidence found. Possible reasons:`);
+          console.log(`      - Face clusters don't have characterName`);
+          console.log(`      - Dominance threshold too high (< 30%)`);
+          console.log(`      - Face timestamps don't align with speech`);
+        }
+        
+        // Добавляем face presence evidence в mapper
+        if (facePresenceEvidence.length > 0) {
+          speakerCharacterMapper.addFacePresenceEvidence(facePresenceEvidence);
+          console.log(`   ✅ Added face presence evidence for ${facePresenceEvidence.length} speakers`);
+          
+          // Перестраиваем mapping с новым evidence
+          const newMappingResult = speakerCharacterMapper.buildMapping();
+          chunkProgress.speakerCharacterMap = speakerCharacterMapper.export();
+          logMappingStats(newMappingResult);
+        }
+      } catch (facePresenceError) {
+        console.error(`   ⚠️ Face presence evidence failed:`, facePresenceError);
+      }
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -441,13 +628,17 @@ export async function POST(request: NextRequest) {
         const rawScenes = await detectScenesWithPySceneDetect(originalVideoPath, { 
           fps: videoFPS,
           adaptiveThreshold: 1.8,
-          minSceneDuration: 0.25,
+          minSceneDuration: 0.2,  // Немного уменьшили для захвата коротких планов
           maxScenes: 5000,
         });
         
+        console.log(`   📊 PySceneDetect RAW: ${rawScenes.length} scenes detected`);
+        
+        // МИНИМАЛЬНЫЙ мерджинг — только настоящие артефакты (<0.08 сек = 2 кадра)
+        // Это ошибки детекции, не реальные планы
         const smartMerged = smartMergeScenes(rawScenes, {
-          ultraShortThreshold: 0.3,
-          shortThreshold: 0.8,
+          ultraShortThreshold: 0.08,  // <2 кадра при 25fps — точно артефакт
+          shortThreshold: 0.08,       // Не мерджим ничего больше
         });
         
         detectedScenes = smartMerged.map(s => ({
@@ -471,20 +662,40 @@ export async function POST(request: NextRequest) {
           detectedScenes.push({ timecode: finalTimecode, timestamp: videoDuration });
         }
         
-        // Merge credits
+        // АУДИО-ДЕТЕКЦИЯ: Находим время первого диалога
+        // Заставка заканчивается когда начинаются диалоги!
+        let firstDialogueTime: number | undefined;
+        if (fullDiarizationWords.length > 0) {
+          // Ищем первое "настоящее" слово (не шум, не музыка)
+          const firstRealWord = fullDiarizationWords.find(w => 
+            w.text && w.text.length >= 2 && /[а-яёa-z]/i.test(w.text)
+          );
+          if (firstRealWord) {
+            firstDialogueTime = firstRealWord.startMs / 1000;
+            console.log(`   🎤 First dialogue detected at ${firstDialogueTime.toFixed(1)}s: "${firstRealWord.text}"`);
+          }
+        }
+        
+        // Мерджим заставки и титры в ОДИН план (как в реальном монтажном листе!)
+        // Используем аудио-детекцию для умного определения конца заставки
         const mergedScenes = mergeCreditsScenes(detectedScenes, videoDuration, videoFPS, {
           skipCreditsMerging: false,
+          firstDialogueTime,  // 🎤 Передаём время первого диалога
         });
         chunkProgress.mergedScenes = mergedScenes;
-        console.log(`   📊 After credits merge: ${mergedScenes.length} plans`);
         
-        // КРИТИЧЕСКАЯ ПРОВЕРКА: PySceneDetect нашёл 1065 планов, реальный лист имеет 1061
-        // Разница всего 4 плана - НЕ ДОЛЖНЫ ТЕРЯТЬ ПЛАНЫ!
-        if (mergedScenes.length !== 1065 && mergedScenes.length !== 1061) {
-          console.log(`   ⚠️  Внимание: Количество планов (${mergedScenes.length}) отличается от ожидаемого (1065 или 1061)`);
-        } else {
-          console.log(`   ✅ Количество планов соответствует ожидаемому: ${mergedScenes.length}`);
-        }
+        // Подробная статистика потери планов
+        const openingMerged = mergedScenes.filter(s => s.type === 'opening_credits').reduce((sum, s) => sum + s.originalScenesCount, 0);
+        const closingMerged = mergedScenes.filter(s => s.type === 'closing_credits').reduce((sum, s) => sum + s.originalScenesCount, 0);
+        const regularCount = mergedScenes.filter(s => s.type === 'regular').length;
+        
+        console.log(`   📊 PySceneDetect raw: ${detectedScenes.length} scenes`);
+        console.log(`   📊 After credits merge: ${mergedScenes.length} plans`);
+        console.log(`   📊 Breakdown:`);
+        console.log(`      - Opening credits: ${openingMerged} scenes → 2 plans`);
+        console.log(`      - Closing credits: ${closingMerged} scenes → 1 plan`);
+        console.log(`      - Regular scenes: ${regularCount} plans`);
+        console.log(`   📊 Expected ~1061 plans (real montage sheet)`);
         
       } else {
         console.warn(`   ⚠️ PySceneDetect not available`);
@@ -505,7 +716,8 @@ export async function POST(request: NextRequest) {
         lastSeen: cluster.lastSeen,
         characterName: cluster.characterName || null,
         centroid: cluster.centroid ? Array.from(cluster.centroid) : [],
-        faceTimestamps: cluster.faces?.map(f => f.timestamp) || [],
+        // Используем faceTimestamps если есть (worker mode), иначе вычисляем из faces
+        faceTimestamps: cluster.faceTimestamps || cluster.faces?.map(f => f.timestamp) || [],
       }));
       chunkProgress.useFaceRecognition = true;
     }

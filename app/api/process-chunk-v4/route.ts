@@ -679,13 +679,13 @@ export async function POST(request: NextRequest) {
       try {
         fullDiarizationData = deserializeDiarization(video.full_diarization);
         if (fullDiarizationData) {
-          fullDiarizationWords = fullDiarizationData.result.words;
-          fullDiarizationMapping = mappingToRecord(fullDiarizationData.speakerMapping);
-          
-          console.log(`\n🎤 FULL DIARIZATION LOADED:`);
-          console.log(`   Speakers: ${fullDiarizationData.result.speakerCount}`);
-          console.log(`   Mapped: ${Object.keys(fullDiarizationMapping).length} → ${Object.values(fullDiarizationMapping).join(', ')}`);
-          console.log(`   Words: ${fullDiarizationWords.length}`);
+        fullDiarizationWords = fullDiarizationData.result.words;
+        fullDiarizationMapping = mappingToRecord(fullDiarizationData.speakerMapping);
+        
+        console.log(`\n🎤 FULL DIARIZATION LOADED:`);
+        console.log(`   Speakers: ${fullDiarizationData.result.speakerCount}`);
+        console.log(`   Mapped: ${Object.keys(fullDiarizationMapping).length} → ${Object.values(fullDiarizationMapping).join(', ')}`);
+        console.log(`   Words: ${fullDiarizationWords.length}`);
         }
       } catch (e) {
         console.warn(`⚠️ Failed to load full diarization:`, e);

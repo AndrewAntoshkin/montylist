@@ -43,10 +43,16 @@ export async function GET(request: NextRequest) {
       .from('montage_entries')
       .select('*')
       .eq('sheet_id', chunkProgress.sheetId)
-      .order('timecode_start', { ascending: true });
+      .order('start_timecode', { ascending: true });
 
     if (entriesError) {
-      return NextResponse.json({ error: 'Failed to fetch entries' }, { status: 500 });
+      console.error('Entries fetch error:', entriesError);
+      console.log('   sheetId:', chunkProgress.sheetId);
+      return NextResponse.json({ 
+        error: 'Failed to fetch entries', 
+        details: entriesError.message,
+        sheetId: chunkProgress.sheetId 
+      }, { status: 500 });
     }
 
     console.log(`📊 Found ${allEntries?.length || 0} entries in database`);
@@ -79,10 +85,10 @@ export async function GET(request: NextRequest) {
 
     // Reorder and renumber
     const reorderedEntries = deduplicatedEntries
-      .sort((a, b) => a.timecode_start.localeCompare(b.timecode_start))
+      .sort((a, b) => a.start_timecode.localeCompare(b.start_timecode))
       .map((entry, index) => ({
         ...entry,
-        id: undefined, // Let DB generate new IDs
+        id: crypto.randomUUID(), // Generate new UUID for each entry
         plan_number: index + 1,
         order_index: index
       }));

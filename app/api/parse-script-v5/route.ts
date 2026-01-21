@@ -79,6 +79,7 @@ export async function POST(request: NextRequest) {
         attributes: char.attributes,
       })),
       lines: parsedScript.lines,
+      scenes: parsedScript.scenes || [], // НОВОЕ: сцены с персонажами
       totalLines: parsedScript.lines.length,
       parserVersion: 'v5-deterministic',
     };
@@ -86,6 +87,7 @@ export async function POST(request: NextRequest) {
     console.log(`\n✅ PARSING COMPLETE:`);
     console.log(`   Title: ${scriptData.title}`);
     console.log(`   Characters: ${scriptData.characters.length}`);
+    console.log(`   Scenes: ${scriptData.scenes.length}`);
     console.log(`   Lines: ${scriptData.totalLines}`);
     console.log(`   Top characters:`);
     for (const char of scriptData.characters.slice(0, 5)) {

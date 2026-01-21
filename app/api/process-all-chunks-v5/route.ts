@@ -14,6 +14,7 @@
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { getReplicatePool } from '@/lib/replicate-pool';
 
 export const maxDuration = 60; // Only 60s - we return immediately
 export const dynamic = 'force-dynamic';
@@ -78,6 +79,20 @@ export async function POST(request: NextRequest) {
         message: 'All chunks already processed',
         completed: true,
       });
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════
+    // PRE-CHECK: Verify Replicate service is available
+    // ═══════════════════════════════════════════════════════════════════
+    console.log(`\n🔍 Checking Replicate service availability...`);
+    const pool = getReplicatePool();
+    const serviceCheck = await pool.checkServiceAvailable();
+    
+    if (!serviceCheck.available) {
+      console.log(`   ⚠️ Replicate service check failed: ${serviceCheck.error}`);
+      console.log(`   📌 Processing will continue - Gemini calls will retry or skip`);
+    } else {
+      console.log(`   ✅ Replicate service is healthy`);
     }
     
     // Trigger first MAX_CONCURRENT chunks

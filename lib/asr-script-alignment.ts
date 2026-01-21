@@ -11,7 +11,7 @@
  * @version 5.0-beta
  */
 
-import { ScriptLine } from './script-parser-deterministic';
+import { ScriptLine, ScriptScene } from './script-parser-deterministic';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ТИПЫ
@@ -41,6 +41,8 @@ export interface AlignmentLink {
   expectedCharacter: string;
   confidence: number;
   matchType: 'exact' | 'fuzzy' | 'anchor' | 'order';
+  sceneNumber?: string;           // Номер сцены из сценария (9.3, 9.17 и т.д.)
+  sceneCharacters?: string[];     // Персонажи в этой сцене
 }
 
 export interface AlignmentResult {
@@ -65,11 +67,26 @@ const MAX_SCRIPT_JUMP = 30;        // УВЕЛИЧЕН для более гиб�
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
+ * Находит сцену по индексу строки сценария
+ */
+function findSceneByLineIndex(scenes: ScriptScene[], lineIndex: number): ScriptScene | undefined {
+  for (const scene of scenes) {
+    if (lineIndex >= scene.startLineIndex && 
+        (scene.endLineIndex === undefined || lineIndex <= scene.endLineIndex)) {
+      return scene;
+    }
+  }
+  return undefined;
+}
+
+/**
  * Выполняет alignment между ASR сегментами и строками сценария
+ * @param scenes - ОПЦИОНАЛЬНО: сцены из сценария для контекста (персонажи в сцене)
  */
 export function alignASRToScript(
   asrSegments: ASRSegment[],
-  scriptLines: ScriptLine[]
+  scriptLines: ScriptLine[],
+  scenes?: ScriptScene[]
 ): AlignmentResult {
   const links: AlignmentLink[] = [];
   const speakerToCharacterVotes = new Map<string, Map<string, number>>();
@@ -141,6 +158,9 @@ export function alignASRToScript(
     if (bestMatch && bestMatch.similarity >= MIN_FUZZY_SIMILARITY) {
       const scriptLine = scriptLines[bestMatch.scriptIdx];
       
+      // Находим сцену для этого диалога
+      const matchedScene = scenes ? findSceneByLineIndex(scenes, bestMatch.scriptIdx) : undefined;
+      
       links.push({
         asrSegmentIndex: asrIdx,
         scriptLineIndex: bestMatch.scriptIdx,
@@ -148,6 +168,8 @@ export function alignASRToScript(
         expectedCharacter: scriptLine.character,
         confidence: bestMatch.similarity,
         matchType: bestMatch.type,
+        sceneNumber: matchedScene?.sceneNumber,
+        sceneCharacters: matchedScene?.characters,
       });
       
       // Голосуем за speaker → character
