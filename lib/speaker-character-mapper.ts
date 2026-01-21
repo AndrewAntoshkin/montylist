@@ -29,7 +29,7 @@ export interface SpeakerCharacterMapping {
 }
 
 export interface EvidenceSource {
-  type: 'alignment' | 'face_presence' | 'gemini_hint' | 'name_mention';
+  type: 'alignment' | 'face_presence' | 'gemini_hint' | 'name_mention' | 'scene_context';
   character: string;
   weight: number;
   timestamp?: number;
