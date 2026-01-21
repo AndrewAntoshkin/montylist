@@ -55,6 +55,7 @@ type FaceCluster = {
   characterName?: string | null;
   centroid?: Float32Array | number[];
   faces?: Array<{ timestamp: number }>;
+  faceTimestamps?: number[];  // Timestamps лиц (сек) - используется когда faces пустой
 };
 
 // 10 minutes timeout (V5 делает больше работы)
