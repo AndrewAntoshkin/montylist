@@ -392,7 +392,7 @@ export async function POST(request: NextRequest) {
         (sceneStartMs >= 360000 && sceneStartMs <= 390000);    // 06:00-06:30
       
       if (isProblematicTimecode && wordsInScene.length > 0) {
-        const uniqueSpeakers = [...new Set(wordsInScene.map(w => w.speaker).filter(Boolean))];
+        const uniqueSpeakers = [...new Set(wordsInScene.map(w => w.speaker).filter((s): s is string => !!s))];
         console.log(`\n   🎯 PROBLEM ZONE Scene ${sceneIndex} (${sceneTimecode}):`);
         console.log(`      Words count: ${wordsInScene.length}`);
         console.log(`      Speakers: [${uniqueSpeakers.join(', ')}]`);
