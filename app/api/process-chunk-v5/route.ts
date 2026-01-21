@@ -333,7 +333,7 @@ export async function POST(request: NextRequest) {
       const isEarlyScene = sceneStartMs < 600000; // Первые 10 минут
       if (isEarlyScene && sceneIndex % 10 === 0) {
         // Показываем каждую 10-ю сцену для экономии логов
-        const speakersInScene = [...new Set(wordsInScene.map(w => w.speaker).filter(Boolean))];
+        const speakersInScene = [...new Set(wordsInScene.map(w => w.speaker).filter((s): s is string => !!s))];
         const speakersMapped = speakersInScene.map(s => `${s}→${speakerCharacterMap[s] || '?'}`);
         console.log(`   📊 Scene ${sceneIndex} (${sceneTimecode}): ${wordsInScene.length} words, speakers: [${speakersMapped.join(', ')}]`);
       }
