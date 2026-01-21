@@ -280,6 +280,7 @@ export class SpeakerCharacterMapper {
             resolution = 'priority_alignment';
           } else {
             // Нет явного приоритета — регистрируем конфликт
+            resolution = 'unresolved';
             this.conflicts.push({
               speakerId,
               candidates: sorted.map(([char, score]) => ({ character: char, score })),
