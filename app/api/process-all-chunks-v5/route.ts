@@ -23,8 +23,12 @@ export const dynamic = 'force-dynamic';
 const MAX_CONCURRENT = 3;
 
 export async function POST(request: NextRequest) {
+  // Use internal URL for Railway (HTTP inside container)
   const requestUrl = new URL(request.url);
-  const savedBaseUrl = `${requestUrl.protocol}//${requestUrl.host}`;
+  const isRailway = !!process.env.RAILWAY_ENVIRONMENT;
+  const savedBaseUrl = isRailway 
+    ? `http://localhost:${process.env.PORT || 3000}`
+    : `${requestUrl.protocol}//${requestUrl.host}`;
   
   try {
     const { videoId } = await request.json();

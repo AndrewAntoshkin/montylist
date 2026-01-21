@@ -66,8 +66,13 @@ export async function POST(request: NextRequest) {
   const tempFiles: string[] = [];
   const startTime = Date.now();
   
+  // Use internal URL for Railway (HTTP inside container)
+  // Railway exposes the app on PORT internally, but uses HTTPS externally
   const requestUrl = new URL(request.url);
-  const savedBaseUrl = `${requestUrl.protocol}//${requestUrl.host}`;
+  const isRailway = !!process.env.RAILWAY_ENVIRONMENT;
+  const savedBaseUrl = isRailway 
+    ? `http://localhost:${process.env.PORT || 3000}`
+    : `${requestUrl.protocol}//${requestUrl.host}`;
   
   try {
     const { videoId, videoUrl, videoDuration, filmMetadata, scriptData } = await request.json();

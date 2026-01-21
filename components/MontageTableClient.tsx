@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { ArrowLeftIcon, ChevronDownIcon, ChevronUpDownIcon } from '@heroicons/react/16/solid';
 import type { Video, MontageSheet, MontageEntry, Profile } from '@/types';
@@ -18,7 +18,7 @@ interface MontageTableClientProps {
 export default function MontageTableClient({
   video,
   sheet,
-  entries,
+  entries: initialEntries,
   user,
   profile,
 }: MontageTableClientProps) {
@@ -27,6 +27,62 @@ export default function MontageTableClient({
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [renumbering, setRenumbering] = useState(false);
   const exportMenuRef = useRef<HTMLDivElement>(null);
+  
+  // Live update state
+  const [entries, setEntries] = useState<MontageEntry[]>(initialEntries);
+  const [isProcessing, setIsProcessing] = useState(video.status === 'processing');
+  const [progress, setProgress] = useState({ completed: 0, total: 0 });
+  
+  // Fetch latest entries and progress
+  const fetchLatestData = useCallback(async () => {
+    try {
+      // Fetch video status and progress
+      const videoRes = await fetch(`/api/video-status/${video.id}`);
+      if (videoRes.ok) {
+        const videoData = await videoRes.json();
+        setIsProcessing(videoData.status === 'processing');
+        if (videoData.chunk_progress_json) {
+          setProgress({
+            completed: videoData.chunk_progress_json.completedChunks || 0,
+            total: videoData.chunk_progress_json.totalChunks || 0,
+          });
+        }
+        
+        // If completed, stop polling
+        if (videoData.status !== 'processing') {
+          return false; // Stop polling
+        }
+      }
+      
+      // Fetch latest entries
+      const entriesRes = await fetch(`/api/montage-entries/${video.id}`);
+      if (entriesRes.ok) {
+        const entriesData = await entriesRes.json();
+        if (entriesData.entries && entriesData.entries.length > entries.length) {
+          setEntries(entriesData.entries);
+        }
+      }
+      
+      return true; // Continue polling
+    } catch (error) {
+      console.error('Error fetching latest data:', error);
+      return true; // Continue polling on error
+    }
+  }, [video.id, entries.length]);
+  
+  // Poll for updates while processing
+  useEffect(() => {
+    if (!isProcessing) return;
+    
+    const pollInterval = setInterval(async () => {
+      const shouldContinue = await fetchLatestData();
+      if (!shouldContinue) {
+        clearInterval(pollInterval);
+      }
+    }, 5000); // Poll every 5 seconds
+    
+    return () => clearInterval(pollInterval);
+  }, [isProcessing, fetchLatestData]);
 
   // Close export menu when clicking outside
   useEffect(() => {
@@ -226,6 +282,34 @@ export default function MontageTableClient({
               </div>
             </div>
           </div>
+
+          {/* Processing Progress Bar */}
+          {isProcessing && (
+            <div className="mb-6 p-4 bg-[#1a1a2e] rounded-lg border border-[#2a2a4a]">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-3">
+                  <div className="w-3 h-3 bg-blue-500 rounded-full animate-pulse" />
+                  <span className="text-white text-sm font-medium">
+                    Видео обрабатывается...
+                  </span>
+                </div>
+                <span className="text-gray-400 text-sm">
+                  {progress.total > 0 
+                    ? `${progress.completed}/${progress.total} чанков (${Math.round(progress.completed / progress.total * 100)}%)`
+                    : 'Инициализация...'}
+                </span>
+              </div>
+              <div className="w-full bg-[#2a2a4a] rounded-full h-2">
+                <div 
+                  className="bg-gradient-to-r from-blue-500 to-purple-500 h-2 rounded-full transition-all duration-500"
+                  style={{ width: progress.total > 0 ? `${(progress.completed / progress.total) * 100}%` : '5%' }}
+                />
+              </div>
+              <p className="text-gray-500 text-xs mt-2">
+                Планы появляются по мере обработки. Страница обновляется автоматически.
+              </p>
+            </div>
+          )}
 
           {/* Table */}
           <div className="flex gap-14 items-start justify-center w-full">
