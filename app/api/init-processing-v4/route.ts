@@ -224,8 +224,8 @@ export async function POST(request: NextRequest) {
         
         const rawScenes = await detectScenesWithPySceneDetect(originalVideoPath, { 
           fps: videoFPS,
-          adaptiveThreshold: 1.8,  // ⬇️ ПОНИЖЕН до 1.8 — максимальный захват сцен (меньше пропусков!)
-          minSceneDuration: 0.25,  // ⬇️ ПОНИЖЕН до 0.25 сек — ловим короткие планы
+          adaptiveThreshold: 2.5,  // Оптимальный баланс точности
+          minSceneDuration: 0.4,   // Фильтрует микро-сцены
           maxScenes: 5000,
         });
         

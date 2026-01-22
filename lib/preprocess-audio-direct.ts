@@ -17,6 +17,11 @@ export interface PreprocessAudioParams {
   videoId: string;
   audioUrl: string;
   characters?: Array<{ name?: string }>;
+  // V5 auto-trigger params (optional)
+  videoDuration?: number;
+  filmMetadata?: any;
+  scriptData?: any;
+  autoTriggerInit?: boolean;
 }
 
 export interface PreprocessAudioResult {
@@ -136,6 +141,43 @@ export async function runPreprocessAudio(
     console.log(`   Speakers: ${diarizationResult.speakers.join(', ')}`);
     console.log(`   Duration: ${(diarizationResult.totalDuration / 60).toFixed(1)} min`);
     console.log(`   Time taken: ${totalTime.toFixed(1)}s`);
+
+    // ═══════════════════════════════════════════════════════════════
+    // AUTO-TRIGGER init-processing-v5 (если включено)
+    // Это надёжнее, чем полагаться на клиент!
+    // ═══════════════════════════════════════════════════════════════
+    if (params.autoTriggerInit && params.videoDuration) {
+      console.log(`\n🚀 AUTO-TRIGGERING init-processing-v5...`);
+      
+      // Используем internal URL для надёжности
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 
+                     `http://localhost:${process.env.PORT || 3000}`;
+      
+      // Fire and forget - не ждём ответа
+      fetch(`${baseUrl}/api/init-processing-v5`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-internal-request': 'true',
+        },
+        body: JSON.stringify({
+          videoId: params.videoId,
+          videoUrl: params.audioUrl,
+          videoDuration: params.videoDuration,
+          filmMetadata: params.filmMetadata,
+          scriptData: params.scriptData,
+        }),
+      }).then(async (res) => {
+        if (res.ok) {
+          console.log(`   ✅ init-processing-v5 triggered successfully`);
+        } else {
+          const error = await res.json().catch(() => ({}));
+          console.error(`   ❌ init-processing-v5 failed:`, error);
+        }
+      }).catch((err) => {
+        console.error(`   ❌ init-processing-v5 trigger error:`, err.message);
+      });
+    }
 
     return {
       success: true,

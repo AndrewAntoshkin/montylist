@@ -14,14 +14,19 @@
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-// import { getReplicatePool } from '@/lib/replicate-pool'; // Replaced with fal.ai
+import { analyzeVideo } from '@/lib/video-analyzer';
 import { 
   detectFacePresence, 
   formatPresenceStatus,
   type FacePresenceResult,
 } from '@/lib/face-presence-detector';
 import type { FaceCluster } from '@/lib/face-types';
-import { analyzeVideoChunk } from '@/lib/fal-video-understanding';
+import { 
+  MAX_CONCURRENT_CHUNKS,
+  TRIGGERING_TIMEOUT_MS,
+  STUCK_CHUNK_TIMEOUT_MS,
+  MAX_CHUNK_RETRIES,
+} from '@/lib/config';
 
 // 5 minutes timeout
 export const maxDuration = 300;
@@ -121,7 +126,6 @@ export async function POST(request: NextRequest) {
     
     // АВТОМАТИЧЕСКИЙ СБРОС ЗАСТРЯВШИХ ЧАНКОВ
     // Если какой-то чанк в 'triggering' более 60 секунд — сбрасываем в 'pending'
-    const TRIGGERING_TIMEOUT_MS = 60 * 1000; // 60 секунд
     const now = Date.now();
     let hadStuckChunks = false;
     
@@ -164,13 +168,12 @@ export async function POST(request: NextRequest) {
     
     if (chunkInfo.status === 'in_progress') {
       // Проверяем timeout — если чанк in_progress более 20 минут, считаем его застрявшим
-      const STUCK_TIMEOUT_MS = 20 * 60 * 1000; // 20 минут
       const startedAt = chunkInfo.started_at ? new Date(chunkInfo.started_at).getTime() : 0;
-      const now = Date.now();
-      const isStuck = startedAt > 0 && (now - startedAt) > STUCK_TIMEOUT_MS;
+      const nowTime = Date.now();
+      const isStuck = startedAt > 0 && (nowTime - startedAt) > STUCK_CHUNK_TIMEOUT_MS;
       
       if (isStuck) {
-        console.log(`   ⚠️  Chunk ${chunkIndex} stuck for ${Math.round((now - startedAt) / 60000)} min — resetting to pending...`);
+        console.log(`   ⚠️  Chunk ${chunkIndex} stuck for ${Math.round((nowTime - startedAt) / 60000)} min — resetting to pending...`);
         chunkInfo.status = 'pending';
         chunkInfo.started_at = undefined;
         await supabase
@@ -249,14 +252,14 @@ export async function POST(request: NextRequest) {
     const scriptScenes = scriptData?.scenes || [];
     
     // ═══════════════════════════════════════════════════════════════════
-    // STEP 1: Call FAL.AI for visual description (no geo-restrictions!)
+    // STEP 1: Gemini (Replicate) → FAL (fallback) for visual analysis
     // ═══════════════════════════════════════════════════════════════════
-    console.log(`\n🎬 Calling fal.ai/video-understanding for visual descriptions...`);
+    console.log(`\n🎬 Video analysis: Gemini 2.5 Flash (primary) → FAL.ai (fallback)...`);
     
     let geminiResponse: any = null;
     
     try {
-      const falResult = await analyzeVideoChunk(
+      const analysisResult = await analyzeVideo(
         chunkUrl,
         scenesInChunk.map(s => ({
           start_timecode: s.start_timecode,
@@ -266,18 +269,18 @@ export async function POST(request: NextRequest) {
         scriptScenes
       );
       
-      if (falResult.success && falResult.plans.length > 0) {
-        geminiResponse = { plans: falResult.plans };
-        console.log(`   ✅ FAL returned ${falResult.plans.length} plan descriptions`);
-      } else if (falResult.rawOutput) {
-        console.log(`   ⚠️ FAL returned raw output (no JSON), parsing manually...`);
-        // Попробуем извлечь хоть какую-то информацию из rawOutput
-        geminiResponse = { plans: [], rawDescription: falResult.rawOutput };
+      if (analysisResult.success && analysisResult.plans.length > 0) {
+        geminiResponse = { plans: analysisResult.plans };
+        const source = analysisResult.source === 'gemini-replicate' ? '🤖 Gemini' : '🎨 FAL';
+        console.log(`   ✅ ${source} returned ${analysisResult.plans.length} plan descriptions`);
+      } else if (analysisResult.rawOutput) {
+        console.log(`   ⚠️ Analysis returned raw output (no JSON), parsing manually...`);
+        geminiResponse = { plans: [], rawDescription: analysisResult.rawOutput };
       } else {
-        console.log(`   ⚠️ FAL failed: ${falResult.error}`);
+        console.log(`   ⚠️ Analysis failed: ${analysisResult.error}`);
       }
-    } catch (falError: any) {
-      console.log(`   ⚠️ FAL error: ${falError.message}`);
+    } catch (analysisError: any) {
+      console.log(`   ⚠️ Analysis error: ${analysisError.message}`);
       console.log(`   Continuing without visual descriptions...`);
     }
     
@@ -717,8 +720,7 @@ export async function POST(request: NextRequest) {
       (c: any) => c.status === 'completed'
     ).length;
     
-    // Check for pending chunks (включая failed с retry < 3)
-    const MAX_CHUNK_RETRIES = 3;
+    // Check for pending chunks (включая failed с retry < MAX_CHUNK_RETRIES)
     const pendingChunks = freshProgress.chunks.filter(
       (c: any) => {
         // Ready или pending чанки (НЕ triggering — он уже взят)
@@ -745,12 +747,11 @@ export async function POST(request: NextRequest) {
       (c: any) => c.status === 'in_progress' || c.status === 'triggering'
     );
     
-    const MAX_CONCURRENT = 3;
-    const canTriggerMore = inProgressChunks.length < MAX_CONCURRENT && pendingChunks.length > 0;
+    const canTriggerMore = inProgressChunks.length < MAX_CONCURRENT_CHUNKS && pendingChunks.length > 0;
     
     // Диагностика: логируем состояние для отладки
     if (pendingChunks.length > 0 && !canTriggerMore) {
-      console.log(`   ⚠️ Can't trigger next chunk: ${inProgressChunks.length}/${MAX_CONCURRENT} in progress, ${pendingChunks.length} pending`);
+      console.log(`   ⚠️ Can't trigger next chunk: ${inProgressChunks.length}/${MAX_CONCURRENT_CHUNKS} in progress, ${pendingChunks.length} pending`);
     }
     
     if (canTriggerMore) {
@@ -758,7 +759,7 @@ export async function POST(request: NextRequest) {
       const nextChunk = pendingChunks[0];
       const isRetry = nextChunk.status === 'failed';
       
-      console.log(`\n🔄 Triggering ${isRetry ? 'RETRY' : 'next'} chunk ${nextChunk.index + 1} (${pendingChunks.length} pending, ${inProgressChunks.length}/${MAX_CONCURRENT} in progress)...`);
+      console.log(`\n🔄 Triggering ${isRetry ? 'RETRY' : 'next'} chunk ${nextChunk.index + 1} (${pendingChunks.length} pending, ${inProgressChunks.length}/${MAX_CONCURRENT_CHUNKS} in progress)...`);
       
       // АТОМАРНАЯ БЛОКИРОВКА: помечаем чанк как 'triggering' СРАЗУ
       // Это предотвращает дублирование если два воркера завершились одновременно

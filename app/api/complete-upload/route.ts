@@ -205,10 +205,16 @@ export async function POST(request: NextRequest) {
         console.log(`🎤 Starting FULL AUDIO DIARIZATION for video ${video.id}...`);
         
         // Fire and forget - вызываем напрямую без блокировки
+        // После диаризации автоматически триггерит init-processing-v5!
         runPreprocessAudio({
           videoId: video.id,
           audioUrl: videoUrl,
           characters: scriptData?.characters || [],
+          // V5 auto-trigger params
+          videoDuration: videoDuration,
+          filmMetadata: filmMetadata,
+          scriptData: scriptData,
+          autoTriggerInit: processingVersion === 'v5-beta',
         }).catch(err => {
           console.error(`⚠️ Pre-process audio failed (non-critical):`, err);
         });

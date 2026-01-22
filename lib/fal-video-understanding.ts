@@ -3,21 +3,37 @@
  * 
  * Замена Replicate Gemini для визуального анализа видео
  * Работает без гео-ограничений!
+ * 
+ * Улучшения:
+ * - Exponential backoff для retry
+ * - Максимум 2 retry попытки
+ * - Детальное логирование ошибок
  */
 
 import { fal } from '@fal-ai/client';
+import { FAL_TIMEOUT_MS } from '@/lib/config';
 
-// Конфигурация
-const FAL_CREDENTIALS = process.env.FAL_API_KEY || '89dceaa8-2e49-40f3-ad05-be403157f122:fb36fcd072592bfe0b732b797ec17e20';
+// Конфигурация - API ключ ОБЯЗАТЕЛЕН
+const FAL_CREDENTIALS = process.env.FAL_API_KEY;
+
+if (!FAL_CREDENTIALS) {
+  console.warn('⚠️ FAL_API_KEY not set - FAL.ai video analysis will be unavailable');
+}
 
 fal.config({
-  credentials: FAL_CREDENTIALS
+  credentials: FAL_CREDENTIALS || ''
 });
+
+// Retry configuration
+const MAX_RETRIES = 2;
+const INITIAL_BACKOFF_MS = 2000; // 2 секунды
+const BACKOFF_MULTIPLIER = 2;    // 2s → 4s
 
 export interface VideoAnalysisPlan {
   planNumber: number;
   planType: string;
   description: string;
+  visualDescription?: string;  // Детальное описание внешности людей в кадре
   visualCharacters: string[];
   location: string;
   speakingCharacter?: string;
@@ -54,63 +70,68 @@ export async function analyzeVideoChunk(
     sceneContext = `\nКОНТЕКСТ СЦЕНАРИЯ (ближайшие сцены):\n${relevantScenes}\n`;
   }
 
-  const prompt = `Ты профессиональный монтажёр. Проанализируй видео и опиши ВИЗУАЛЬНУЮ ИНФОРМАЦИЮ для каждого плана.
+  const prompt = `Ты профессиональный монтажёр. Проанализируй видео и определи КТО находится в кадре.
 
-ПЕРСОНАЖИ ИЗ СЦЕНАРИЯ (с описаниями):
+👥 ПЕРСОНАЖИ ФИЛЬМА (используй для идентификации):
 ${characterList || 'не указаны'}
 ${sceneContext}
-ВАЖНО:
-- Описывай ТОЛЬКО что ВИДНО в кадре
-- Определяй тип плана: Кр. (крупный), Ср. (средний), Общ. (общий), Деталь
-- Если можешь определить говорящего персонажа по ВИЗУАЛЬНЫМ признакам (лицо, одежда, контекст), укажи его в speakingCharacter
-- Отвечай на РУССКОМ языке
+📝 ЗАДАЧА - ДЛЯ КАЖДОГО ПЛАНА:
 
-ПЛАНЫ ДЛЯ АНАЛИЗА:
-${scenes.map((s, i) => `План ${i + 1}: ${s.start_timecode} - ${s.end_timecode}`).join('\n')}
+1. ОПИШИ ЛЮДЕЙ В КАДРЕ детально:
+   - Пол, примерный возраст
+   - Телосложение (крупная, худая, высокий, низкий)
+   - Волосы (блондинка, брюнет, рыжая, лысый)
+   - Этнические признаки (араб, славянка, смуглый)
+   - Одежда, украшения (золотые браслеты, чёрный костюм)
 
-ФОРМАТ ОТВЕТА (JSON):
+2. СОПОСТАВЬ с персонажами:
+   - Крупная блондинка с золотом → ГАЛИНА
+   - Невысокий смуглый мужчина → ЮСЕФ
+   - Молодой араб с платком → МОХАММЕД
+   - Женщины в униформе → работницы салона
+
+3. КТО ГОВОРИТ (по движению губ, жестам)
+
+🎬 ПЛАНЫ ДЛЯ АНАЛИЗА (${scenes.length} планов):
+${scenes.slice(0, 10).map((s, i) => `${i + 1}. ${s.start_timecode} - ${s.end_timecode}`).join('\n')}
+${scenes.length > 10 ? `... и ещё ${scenes.length - 10} планов (проанализируй ВСЁ видео)` : ''}
+
+✅ ФОРМАТ JSON:
 {
   "plans": [
     {
       "planNumber": 1,
       "planType": "Ср.",
-      "description": "Женщина в золотом платье стоит у стойки ресепшн",
-      "visualCharacters": ["женщина в золотом", "мужчина в костюме"],
-      "location": "холл салона",
+      "description": "Крупная блондинка с золотыми браслетами сидит в кресле",
+      "visualDescription": "женщина ~27 лет, полная, светлые волосы, много золотых украшений",
+      "visualCharacters": ["ГАЛИНА"],
+      "location": "салон красоты",
       "speakingCharacter": "ГАЛИНА"
     }
   ]
 }
 
-Ответь ТОЛЬКО JSON, без markdown блоков.`;
+ВАЖНО: Если видишь человека, соответствующего описанию персонажа — укажи ИМЯ. Иначе опиши внешность.
+Ответь ТОЛЬКО JSON!`;
 
-  try {
-    console.log(`🎬 [FAL] Analyzing video: ${videoUrl.slice(0, 80)}...`);
-    console.log(`   Scenes: ${scenes.length}, Characters: ${characters.length}`);
-    
-    // Таймаут 10 минут для длинных видео (3-минутные чанки могут обрабатываться долго)
-    const FAL_TIMEOUT = 600000; // 10 минут
-    
-    // Компактное логирование со счётчиком
-    let updateCount = 0;
+  // Helper function to make FAL request with timeout
+  const makeFalRequest = async (requestPrompt: string, attempt: number): Promise<any> => {
     let lastStatus = '';
     const startTime = Date.now();
     
     const falPromise = fal.subscribe('fal-ai/video-understanding', {
       input: {
         video_url: videoUrl,
-        prompt: prompt
+        prompt: requestPrompt
       },
       logs: false,
       onQueueUpdate: (update) => {
-        updateCount++;
-        // Логируем только при смене статуса
         if (update.status !== lastStatus) {
           const elapsed = Math.round((Date.now() - startTime) / 1000);
           if (update.status === 'IN_QUEUE') {
-            console.log(`   ⏳ FAL: In queue... (${elapsed}s)`);
+            console.log(`   ⏳ FAL: In queue... (${elapsed}s)${attempt > 0 ? ` [retry ${attempt}]` : ''}`);
           } else if (update.status === 'IN_PROGRESS') {
-            console.log(`   🔄 FAL: Processing... (${elapsed}s)`);
+            console.log(`   🔄 FAL: Processing... (${elapsed}s)${attempt > 0 ? ` [retry ${attempt}]` : ''}`);
           }
           lastStatus = update.status;
         }
@@ -118,87 +139,140 @@ ${scenes.map((s, i) => `План ${i + 1}: ${s.start_timecode} - ${s.end_timecod
     });
     
     const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error(`FAL timeout after ${FAL_TIMEOUT/1000}s`)), FAL_TIMEOUT);
+      setTimeout(() => reject(new Error(`FAL timeout after ${FAL_TIMEOUT_MS/1000}s`)), FAL_TIMEOUT_MS);
     });
     
-    const result = await Promise.race([falPromise, timeoutPromise]) as any;
+    return Promise.race([falPromise, timeoutPromise]);
+  };
 
-    const output = (result.data as any)?.output || '';
-    console.log(`   ✅ FAL response received (${output.length} chars)`);
-
-    // Парсим JSON из ответа
+  // Helper function to parse FAL response with improved robustness
+  const parseFalResponse = (output: string): { success: boolean; plans: VideoAnalysisPlan[]; rawOutput: string; error?: string } => {
+    // Попытка 1: Убираем markdown блоки
     let jsonStr = output;
-    
-    // Убираем markdown блоки если есть
     const jsonMatch = output.match(/```(?:json)?\s*([\s\S]*?)```/);
     if (jsonMatch) {
       jsonStr = jsonMatch[1].trim();
     }
     
-    // Пробуем найти JSON объект
+    // Попытка 2: Ищем JSON объект { ... } в тексте
     const jsonObjectMatch = jsonStr.match(/\{[\s\S]*\}/);
     if (jsonObjectMatch) {
       jsonStr = jsonObjectMatch[0];
     }
 
+    // Попытка 3: Исправляем частые проблемы в JSON
+    jsonStr = jsonStr
+      .replace(/,\s*}/g, '}')  // Trailing comma before }
+      .replace(/,\s*]/g, ']')  // Trailing comma before ]
+      .replace(/'/g, '"')      // Single quotes → double quotes
+      .replace(/\n/g, ' ')     // Newlines → spaces (внутри строк)
+      .replace(/\t/g, ' ');    // Tabs → spaces
+
     try {
       const parsed = JSON.parse(jsonStr);
       const plans: VideoAnalysisPlan[] = parsed.plans || [];
-      
-      console.log(`   📋 Parsed ${plans.length} plans`);
-      
-      return {
-        success: true,
-        plans,
-        rawOutput: output
-      };
-    } catch (parseError) {
-      console.warn(`   ⚠️ JSON parse failed, returning raw output`);
-      return {
-        success: true,
-        plans: [],
-        rawOutput: output,
-        error: 'JSON parse failed'
-      };
-    }
-
-  } catch (error: any) {
-    const errorMsg = error.message || 'Unknown error';
-    
-    // Retry для некоторых ошибок
-    if (errorMsg.includes('Unprocessable Entity') || errorMsg.includes('timeout') || errorMsg.includes('503')) {
-      console.log(`   ⚠️ FAL error: ${errorMsg}, retrying in 5s...`);
-      
-      // Ждём 5 сек и пробуем ещё раз (с меньшим промптом)
-      await new Promise(resolve => setTimeout(resolve, 5000));
-      
-      try {
-        const retryResult = await fal.subscribe('fal-ai/video-understanding', {
-          input: {
-            video_url: videoUrl,
-            prompt: `Опиши что происходит в видео. Формат JSON: {"plans": [{"planNumber": 1, "planType": "Ср.", "description": "..."}]}`
-          },
-          logs: false,
-        });
-        
-        const retryOutput = (retryResult.data as any)?.output || '';
-        if (retryOutput) {
-          console.log(`   ✅ FAL retry successful (${retryOutput.length} chars)`);
-          const parsed = JSON.parse(retryOutput.match(/\{[\s\S]*\}/)?.[0] || '{}');
-          return { success: true, plans: parsed.plans || [], rawOutput: retryOutput };
+      console.log(`   📋 Parsed ${plans.length} plans from JSON`);
+      return { success: true, plans, rawOutput: output };
+    } catch (e1) {
+      // Попытка 4: Ищем массив plans напрямую
+      const plansArrayMatch = output.match(/"plans"\s*:\s*\[([\s\S]*?)\]/);
+      if (plansArrayMatch) {
+        try {
+          const arrStr = `[${plansArrayMatch[1]}]`
+            .replace(/,\s*]/g, ']')
+            .replace(/'/g, '"');
+          const plans = JSON.parse(arrStr);
+          console.log(`   📋 Parsed ${plans.length} plans from plans array match`);
+          return { success: true, plans, rawOutput: output };
+        } catch {
+          // Continue to fallback
         }
-      } catch (retryError: any) {
-        console.error(`   ❌ FAL retry also failed:`, retryError.message);
+      }
+      
+      // Попытка 5: Regex extraction для отдельных plan объектов
+      const planRegex = /"planNumber"\s*:\s*(\d+)[\s\S]*?"planType"\s*:\s*"([^"]*)"[\s\S]*?"description"\s*:\s*"([^"]*)"/g;
+      const extractedPlans: VideoAnalysisPlan[] = [];
+      let match;
+      while ((match = planRegex.exec(output)) !== null) {
+        extractedPlans.push({
+          planNumber: parseInt(match[1]),
+          planType: match[2],
+          description: match[3],
+          visualCharacters: [],
+          location: ''
+        });
+      }
+      
+      if (extractedPlans.length > 0) {
+        console.log(`   📋 Extracted ${extractedPlans.length} plans via regex fallback`);
+        return { success: true, plans: extractedPlans, rawOutput: output };
+      }
+      
+      console.warn(`   ⚠️ JSON parse failed, returning raw output`);
+      return { success: true, plans: [], rawOutput: output, error: 'JSON parse failed' };
+    }
+  };
+
+  // Check if error is retryable
+  const isRetryableError = (errorMsg: string): boolean => {
+    const retryablePatterns = [
+      'Unprocessable Entity',
+      'timeout',
+      '503',
+      '502',
+      '429',
+      'rate limit',
+      'ECONNRESET',
+      'ETIMEDOUT',
+      'Failed to download video',
+    ];
+    return retryablePatterns.some(pattern => errorMsg.toLowerCase().includes(pattern.toLowerCase()));
+  };
+
+  console.log(`🎬 [FAL] Analyzing video: ${videoUrl.slice(0, 80)}...`);
+  console.log(`   Scenes: ${scenes.length}, Characters: ${characters.length}`);
+  
+  let lastError: string = '';
+  
+  // Main request + retries with exponential backoff
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      // Use simplified prompt on retries
+      const currentPrompt = attempt === 0 ? prompt : 
+        `Опиши что происходит в видео. Формат JSON: {"plans": [{"planNumber": 1, "planType": "Ср.", "description": "описание"}]}`;
+      
+      const result = await makeFalRequest(currentPrompt, attempt);
+      const output = (result.data as any)?.output || '';
+      
+      if (!output) {
+        throw new Error('Empty response from FAL');
+      }
+      
+      console.log(`   ✅ FAL response received (${output.length} chars)${attempt > 0 ? ` [retry ${attempt}]` : ''}`);
+      return parseFalResponse(output);
+      
+    } catch (error: any) {
+      lastError = error.message || 'Unknown error';
+      
+      if (attempt < MAX_RETRIES && isRetryableError(lastError)) {
+        const backoffMs = INITIAL_BACKOFF_MS * Math.pow(BACKOFF_MULTIPLIER, attempt);
+        console.log(`   ⚠️ FAL error: ${lastError.slice(0, 80)}`);
+        console.log(`   🔄 Retry ${attempt + 1}/${MAX_RETRIES} in ${backoffMs/1000}s (exponential backoff)...`);
+        await new Promise(resolve => setTimeout(resolve, backoffMs));
+      } else {
+        // Non-retryable error or max retries reached
+        break;
       }
     }
-    
-    console.error(`❌ [FAL] Error:`, errorMsg);
-    return {
-      success: false,
-      plans: [],
-      error: errorMsg
-    };
   }
+  
+  // All retries failed
+  console.error(`❌ [FAL] All attempts failed. Last error: ${lastError}`);
+  return {
+    success: false,
+    plans: [],
+    error: lastError
+  };
 }
 
 /**

@@ -14,13 +14,10 @@
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { getReplicatePool } from '@/lib/replicate-pool';
+import { MAX_CONCURRENT_CHUNKS } from '@/lib/config';
 
 export const maxDuration = 60; // Only 60s - we return immediately
 export const dynamic = 'force-dynamic';
-
-// Максимум одновременных запросов = количество API ключей
-const MAX_CONCURRENT = 3;
 
 export async function POST(request: NextRequest) {
   // Use internal URL for Railway (HTTP inside container)
@@ -44,7 +41,7 @@ export async function POST(request: NextRequest) {
     console.log(`🎬 V5 BETA: Process All Chunks — ${videoId}`);
     console.log(`${'═'.repeat(60)}`);
     console.log(`   Mode: WORKER POOL (async, self-perpetuating)`);
-    console.log(`   Max concurrent: ${MAX_CONCURRENT}`);
+    console.log(`   Max concurrent: ${MAX_CONCURRENT_CHUNKS}`);
     
     const supabase = createServiceRoleClient();
     
@@ -85,22 +82,10 @@ export async function POST(request: NextRequest) {
       });
     }
     
-    // ═══════════════════════════════════════════════════════════════════
-    // PRE-CHECK: Verify Replicate service is available
-    // ═══════════════════════════════════════════════════════════════════
-    console.log(`\n🔍 Checking Replicate service availability...`);
-    const pool = getReplicatePool();
-    const serviceCheck = await pool.checkServiceAvailable();
+    // V5 uses FAL.ai instead of Replicate - no service check needed
     
-    if (!serviceCheck.available) {
-      console.log(`   ⚠️ Replicate service check failed: ${serviceCheck.error}`);
-      console.log(`   📌 Processing will continue - Gemini calls will retry or skip`);
-    } else {
-      console.log(`   ✅ Replicate service is healthy`);
-    }
-    
-    // Trigger first MAX_CONCURRENT chunks
-    const initialBatch = pendingChunks.slice(0, MAX_CONCURRENT);
+    // Trigger first MAX_CONCURRENT_CHUNKS chunks
+    const initialBatch = pendingChunks.slice(0, MAX_CONCURRENT_CHUNKS);
     
     console.log(`\n🚀 Starting ${initialBatch.length} initial workers...`);
     

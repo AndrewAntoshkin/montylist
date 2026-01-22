@@ -633,8 +633,8 @@ export async function POST(request: NextRequest) {
       if (isPySceneDetectAvailable) {
         const rawScenes = await detectScenesWithPySceneDetect(originalVideoPath, { 
           fps: videoFPS,
-          adaptiveThreshold: 1.8,
-          minSceneDuration: 0.2,  // Немного уменьшили для захвата коротких планов
+          adaptiveThreshold: 2.5,  // ⬆️ ПОВЫШЕН: меньше ложных срабатываний (было 1.8)
+          minSceneDuration: 0.4,   // ⬆️ ПОВЫШЕН: фильтрует микро-сцены < 0.4 сек (было 0.2)
           maxScenes: 5000,
         });
         
@@ -748,7 +748,7 @@ export async function POST(request: NextRequest) {
     // Upload chunks
     console.log(`\n☁️  Uploading ${chunkFiles.length} chunks...`);
     
-    const PARALLEL_UPLOADS = 2;
+    const PARALLEL_UPLOADS = 4; // Increased for faster uploads
     const uploadChunk = async (chunkFile: { chunkIndex: number; localPath: string }) => {
       const chunkStoragePath = `${video.user_id}/chunks-v5/chunk_${chunkFile.chunkIndex}_${Date.now()}.mp4`;
       
