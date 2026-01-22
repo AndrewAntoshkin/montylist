@@ -253,9 +253,9 @@ export async function testGeminiReplicate(): Promise<boolean> {
       input: {
         prompt: 'Say OK'
       }
-    });
+    }) as unknown;
     
-    return typeof output === 'string' && output.length > 0;
+    return typeof output === 'string' && (output as string).length > 0;
   } catch {
     return false;
   }
